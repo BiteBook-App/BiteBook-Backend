@@ -1,0 +1,3 @@
+.venv
+firebase-admin-sdk/*
+__pycache__
