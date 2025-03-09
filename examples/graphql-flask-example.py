@@ -20,33 +20,24 @@ class User:
     profilePicture: Optional[str] = None
     createdAt: Optional[str] = None
 
-# Define Query to retrieve information from 'users' collection
+# Define Query
 @strawberry.type
 class Query:
     @strawberry.field
-    def getUsers(
-        self,
-        uid: Optional[bool] = True,
-        displayName: Optional[bool] = True,
-        profilePicture: Optional[bool] = True,
-        createdAt: Optional[bool] = True
-    ) -> list[User]:
-        db = firestore.client()
+    def getUsers(self) -> list[User]:
         users_ref = db.collection("users")
         users = users_ref.stream()
 
-        result = []
-        for user in users:
-            user_dict = user.to_dict()
-            result.append(
-                User(
-                    uid=user_dict["uid"] if uid else None,
-                    displayName=user_dict["displayName"] if displayName else None,
-                    profilePicture=user_dict["profilePicture"] if profilePicture else None,
-                    createdAt=user_dict["createdAt"].isoformat() if createdAt else None
-                )
+        return [
+            User(
+                uid=user_dict.get("uid"),
+                displayName=user_dict.get("displayName"),
+                profilePicture=user_dict.get("profilePicture"),
+                createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None
             )
-        return result
+            for user in users
+            if (user_dict := user.to_dict())
+        ]
 
 # Create Schema
 schema = strawberry.Schema(Query)
