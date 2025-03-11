@@ -1,3 +1,4 @@
 .venv
 firebase-admin-sdk/*
 __pycache__
+venv
