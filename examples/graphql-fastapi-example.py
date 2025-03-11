@@ -28,7 +28,10 @@ class Query:
         users_ref = db.collection("users")
         users = users_ref.stream()
 
+        # Strawberry internally strips away fields such that only the fields requested are returned
         return [
+            # Get all users from the 'users' collection and store each into a User object
+            # .get() is used in the case that an entry in the collection did not have all fields
             User(
                 uid=user_dict.get("uid"),
                 displayName=user_dict.get("displayName"),
