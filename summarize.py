@@ -18,7 +18,7 @@ class Recipe(BaseModel):
     ingredients: List[str]
     instructions: List[str]
 
-async def extract(inputUrl):
+async def extract(inputUrl):    
     browser_config = BrowserConfig()  # Default browser configuration
 
     # Define the LLM extraction strategy
@@ -64,12 +64,13 @@ async def extract(inputUrl):
             print("Extracted items:", data)
 
             llm_strategy.show_usage()
+            return data
         else:
             print("Error: ", result.error_message)
 
 
 async def main():
-    await extract('https://www.madewithlau.com/recipes/pan-fried-fish')
+    return await extract('https://www.madewithlau.com/recipes/pan-fried-fish')
 
 
 

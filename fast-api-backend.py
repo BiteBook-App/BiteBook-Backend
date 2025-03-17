@@ -6,6 +6,8 @@ from strawberry.fastapi import GraphQLRouter
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
+from summarize import extract
+from pydantic import BaseModel
 
 # Initialize Firebase
 cred = credentials.Certificate("./firebase-admin-sdk/bitebook-admin-credential.json")
@@ -143,3 +145,11 @@ schema = strawberry.Schema(query=Query, mutation=Mutation)
 graphql_app = GraphQLRouter(schema)
 app = FastAPI()
 app.include_router(graphql_app, prefix="/graphql")
+
+# Define request body model
+class URLRequest(BaseModel):
+    url: str
+
+@app.post("/import-recipe")
+async def root(data: URLRequest):
+    return await extract(data.url)
