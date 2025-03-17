@@ -8,7 +8,7 @@ from typing import Optional
 # Initialize Firebase
 # NOTE: Before running, you must retrieve a private key from Firebase to use the Firebase SDK
 # Store the private key under /Bitebook-Backend/firebase-admin-sdk/bitebook-admin-credential.json
-cred = credentials.Certificate("../firebase-admin-sdk/bitebook-admin-credential.json")
+cred = credentials.Certificate("./firebase-admin-sdk/bitebook-admin-credential.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
