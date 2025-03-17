@@ -27,20 +27,19 @@ async def extract(inputUrl):
         extraction_type="schema",  # Type of extraction to perform
         schema=Recipe.schema_json(),
         instruction=(
-            "You are an expert at extracting structured information from text. Given a chunk of text, isolate only the ingredients list and recipe instructions while removing any unnecessary information. Extract the ingredients and be sure to retain the amount of ingredients (i.e., 1 TBSP, 2 cups, etc.). Extract the recipe steps and present them in a numbered format. Remove any unrelated information (such as author notes, introductions, ads, reader comments or interactions, etc.). Ensure the extracted output is clear and concise. If no valid ingredients or instructions are found, return: No recipe data found."
+            "Extract the ingredients (with original measurements) and numbered recipe steps. Remove any unrelated content (e.g., notes, ads, comments). Ensure clarity and conciseness."
         ), 
-        input_format="markdown",  # Format of the input content
+        input_format="fit_markdown",  # Format of the input content
         verbose=True,  # Enable verbose logging
+        chunk_token_threshold=6000
     )
 
 
     # Create a pruning filter to reduce unnecessary content
     prune_filter = PruningContentFilter(
         # Lower → more content retained, higher → more content pruned
-        threshold=0.45,           
-        threshold_type="dynamic",  
-        # # Ignore nodes with <5 words
-        # min_word_threshold=5      
+        threshold=0.65,           
+        threshold_type="dynamic"
     )
 
     # Insert it into a Markdown Generator
@@ -49,7 +48,8 @@ async def extract(inputUrl):
     # Pass LLM strategy and filter to CrawlerRunConfig
     config = CrawlerRunConfig(
         markdown_generator=md_generator,
-        extraction_strategy=llm_strategy
+        extraction_strategy=llm_strategy,
+        delay_before_return_html=2
     )
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
@@ -59,6 +59,7 @@ async def extract(inputUrl):
         )
 
         if result.success:
+            print(result.markdown.fit_markdown)
             data = json.loads(result.extracted_content)
             print("Extracted items:", data)
 
@@ -68,7 +69,7 @@ async def extract(inputUrl):
 
 
 async def main():
-    await extract('https://teakandthyme.com/blueberry-chiffon-cake/')
+    await extract('https://www.madewithlau.com/recipes/pan-fried-fish')
 
 
 
