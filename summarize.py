@@ -14,9 +14,13 @@ from crawl4ai.extraction_strategy import LLMExtractionStrategy
 
 load_dotenv()
 
+class Ingredient(BaseModel):
+    name: str
+    amount: str  # Example: "2 cups", "1 tbsp"
+
 class Recipe(BaseModel):
-    ingredients: List[str]
-    instructions: List[str]
+    ingredients: List[Ingredient]  # List of ingredient dictionaries
+    instructions: List[str]  # List of steps
 
 async def extract(inputUrl):    
     browser_config = BrowserConfig()  # Default browser configuration
