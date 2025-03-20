@@ -19,6 +19,7 @@ class Ingredient(BaseModel):
     amount: str  # Example: "2 cups", "1 tbsp"
 
 class Recipe(BaseModel):
+    name: str
     ingredients: List[Ingredient]  # List of ingredient dictionaries
     instructions: List[str]  # List of steps
 
@@ -31,7 +32,7 @@ async def extract(inputUrl):
         extraction_type="schema",  # Type of extraction to perform
         schema=Recipe.schema_json(),
         instruction=(
-            "Extract the ingredients (with original measurements) and numbered recipe steps. Remove any unrelated content (e.g., notes, ads, comments). Ensure clarity and conciseness."
+            "Extract the name of the recipe, the ingredients (with original measurements), and numbered recipe steps. Remove any unrelated content (e.g., notes, ads, comments). Ensure clarity and conciseness."
         ), 
         input_format="fit_markdown",  # Format of the input content
         verbose=True,  # Enable verbose logging
