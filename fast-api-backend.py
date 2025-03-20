@@ -4,7 +4,6 @@ from firebase_admin import credentials, firestore
 from fastapi import FastAPI
 from strawberry.fastapi import GraphQLRouter
 from typing import List, Optional
-import uuid
 from datetime import datetime, timezone
 
 # Initialize Firebase
