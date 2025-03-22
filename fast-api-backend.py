@@ -172,6 +172,119 @@ class Mutation:
             createdAt=recipe_doc["createdAt"].isoformat()
         )
 
+    @strawberry.mutation
+    def edit_recipe(self, recipe_id: str, recipe_data: RecipeInput) -> Recipe:
+        # Get reference to the existing recipe document
+        recipe_ref = db.collection("recipes").document(recipe_id)
+        recipe_doc = recipe_ref.get()
+
+        # Check if the recipe exists
+        if not recipe_doc.exists:
+            raise ValueError(f"Recipe with ID {recipe_id} not found")
+
+        # Get the existing recipe data
+        existing_recipe = recipe_doc.to_dict()
+
+        # Convert IngredientInput and StepInput objects into dictionaries
+        ingredients_list = [{"name": ing.name, "count": ing.count} for ing in (recipe_data.ingredients or [])]
+        steps_list = [{"text": step.text, "expanded": step.expanded} for step in (recipe_data.steps or [])]
+
+        # Create an update dictionary with only the fields that are provided
+        update_data = {}
+
+        if recipe_data.user_id is not None:
+            update_data["user_id"] = recipe_data.user_id
+        if recipe_data.url is not None:
+            update_data["url"] = recipe_data.url
+        if recipe_data.name is not None:
+            update_data["name"] = recipe_data.name
+        if recipe_data.photo_url is not None:
+            update_data["photo_url"] = recipe_data.photo_url
+        if recipe_data.ingredients is not None:
+            update_data["ingredients"] = ingredients_list
+        if recipe_data.steps is not None:
+            update_data["steps"] = steps_list
+        if recipe_data.tastes is not None:
+            update_data["tastes"] = recipe_data.tastes
+
+        # Add a lastUpdatedAt timestamp
+        update_data["lastUpdatedAt"] = datetime.now(timezone.utc)
+
+        # Update the document with new values
+        recipe_ref.update(update_data)
+
+        # Get the updated recipe
+        updated_recipe = recipe_ref.get().to_dict()
+
+        # Return the updated Recipe object
+        return Recipe(
+            user_id=updated_recipe.get("user_id"),
+            uid=updated_recipe.get("uid"),
+            url=updated_recipe.get("url"),
+            name=updated_recipe.get("name"),
+            photo_url=updated_recipe.get("photo_url"),
+            ingredients=updated_recipe.get("ingredients", []),
+            steps=updated_recipe.get("steps", []),
+            tastes=updated_recipe.get("tastes", []),
+            likes=updated_recipe.get("likes", 0),
+            createdAt=updated_recipe.get("createdAt").isoformat() if updated_recipe.get("createdAt") else None
+        )
+
+    @strawberry.mutation
+    def toggle_recipe_like(self, recipe_id: str, user_id: str) -> Recipe:
+        # Get reference to the recipe document
+        recipe_ref = db.collection("recipes").document(recipe_id)
+        recipe_doc = recipe_ref.get()
+
+        # Check if the recipe exists
+        if not recipe_doc.exists:
+            raise ValueError(f"Recipe with ID {recipe_id} not found")
+
+        # Get the existing recipe data
+        recipe_data = recipe_doc.to_dict()
+
+        # Check if we have a likes_by_user field, if not create it
+        if "likes_by_user" not in recipe_data:
+            recipe_data["likes_by_user"] = []
+
+        # Get current likes count
+        current_likes = recipe_data.get("likes", 0)
+
+        # Check if user has already liked this recipe
+        if user_id in recipe_data["likes_by_user"]:
+            # User already liked, so remove the like
+            recipe_data["likes_by_user"].remove(user_id)
+            new_likes = max(0, current_likes - 1)  # Ensure likes don't go below 0
+        else:
+            # User hasn't liked, so add the like
+            recipe_data["likes_by_user"].append(user_id)
+            new_likes = current_likes + 1
+
+        # Update the likes count
+        recipe_data["likes"] = new_likes
+
+        # Update the document in Firestore
+        recipe_ref.update({
+            "likes": new_likes,
+            "likes_by_user": recipe_data["likes_by_user"],
+            "lastUpdatedAt": datetime.now(timezone.utc)
+        })
+
+        # Return the updated Recipe object
+        return Recipe(
+            user_id=recipe_data.get("user_id"),
+            uid=recipe_data.get("uid"),
+            url=recipe_data.get("url"),
+            name=recipe_data.get("name"),
+            photo_url=recipe_data.get("photo_url"),
+            ingredients=recipe_data.get("ingredients", []),
+            steps=recipe_data.get("steps", []),
+            tastes=recipe_data.get("tastes", []),
+            likes=new_likes,
+            createdAt=recipe_data.get("createdAt").isoformat() if recipe_data.get("createdAt") else None
+        )
+
+
 schema = strawberry.Schema(query=Query, mutation=Mutation)
 
 # FastAPI App
