@@ -16,12 +16,16 @@ load_dotenv()
 
 class Ingredient(BaseModel):
     name: str
-    amount: str  # Example: "2 cups", "1 tbsp"
+    count: str  # Example: "2 cups", "1 tbsp"
+
+class Step(BaseModel):
+    text: str
+    expanded: bool = True
 
 class Recipe(BaseModel):
     name: str
     ingredients: List[Ingredient]  # List of ingredient dictionaries
-    instructions: List[str]  # List of steps
+    instructions: List[Step]  # List of steps
 
 async def extract(inputUrl):    
     browser_config = BrowserConfig()  # Default browser configuration
@@ -32,7 +36,7 @@ async def extract(inputUrl):
         extraction_type="schema",  # Type of extraction to perform
         schema=Recipe.schema_json(),
         instruction=(
-            "Extract the name of the recipe, the ingredients (with original measurements), and numbered recipe steps. Remove any unrelated content (e.g., notes, ads, comments). Ensure clarity and conciseness."
+            "Extract the name of the recipe, the ingredients (with original measurements), and numbered recipe steps. For each step, retain expanded = True. Remove any unrelated content (e.g., notes, ads, comments). Ensure clarity and conciseness."
         ), 
         input_format="fit_markdown",  # Format of the input content
         verbose=True,  # Enable verbose logging
@@ -69,7 +73,7 @@ async def extract(inputUrl):
             print("Extracted items:", data)
 
             llm_strategy.show_usage()
-            return data
+            return data[0]
         else:
             print("Error: ", result.error_message)
 
