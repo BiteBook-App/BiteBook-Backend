@@ -4,7 +4,6 @@ from firebase_admin import credentials, firestore
 from fastapi import FastAPI
 from strawberry.fastapi import GraphQLRouter
 from typing import List, Optional
-import uuid
 from datetime import datetime, timezone
 from summarize import extract
 from pydantic import BaseModel
@@ -26,14 +25,24 @@ class User:
 
 # Define the Recipe schema (output type for queries)
 @strawberry.type
+class Ingredient:
+    name: str
+    count: str
+
+@strawberry.type
+class Step:
+    text: str
+    expanded: bool
+
+@strawberry.type
 class Recipe:
     user_id: Optional[str]
     uid: Optional[str]
     url: Optional[str]
     name: Optional[str]
     photo_url: Optional[str]
-    ingredients: Optional[List[str]]
-    steps: Optional[List[str]]
+    ingredients: Optional[List[Ingredient]]
+    steps: Optional[List[Step]]
     tastes: Optional[List[str]]
     likes: Optional[int]
     createdAt: Optional[str]
@@ -42,13 +51,23 @@ class Recipe:
 
 # Define the Recipe schema (input type for creating a recipe)
 @strawberry.input
+class IngredientInput:
+    name: str
+    count: str
+
+@strawberry.input
+class StepInput:
+    text: str
+    expanded: bool
+
+@strawberry.input
 class RecipeInput:
     user_id: Optional[str] = None
     url: Optional[str] = None
     name: Optional[str] = None
     photo_url: Optional[str] = None
-    ingredients: Optional[List[str]] = None
-    steps: Optional[List[str]] = None
+    ingredients: Optional[List[IngredientInput]] = None
+    steps: Optional[List[StepInput]] = None
     tastes: Optional[List[str]] = None
 
 # ---------- QUERIES ----------
@@ -121,14 +140,19 @@ class Mutation:
         recipe_ref = db.collection("recipes").document()
         recipe_id = recipe_ref.id  # Get the auto-generated ID
         
+        # Convert `IngredientInput` and `StepInput` objects into dictionaries
+        ingredients_list = [{"name": ing.name, "count": ing.count} for ing in (recipe_data.ingredients or [])]
+        steps_list = [{"text": step.text, "expanded": step.expanded} for step in (recipe_data.steps or [])]
+        
+        # Construct the Firestore document
         recipe_doc = {
             "user_id": recipe_data.user_id,
             "uid": recipe_id,  # Store the Firestore-generated ID
             "url": recipe_data.url,
             "name": recipe_data.name,
             "photo_url": recipe_data.photo_url,
-            "ingredients": recipe_data.ingredients or [],
-            "steps": recipe_data.steps or [],
+            "ingredients": ingredients_list,  # Store as list of dictionaries
+            "steps": steps_list,  # Store as list of dictionaries
             "tastes": recipe_data.tastes or [],
             "likes": 0,  # Default to 0 likes
             "createdAt": datetime.now(timezone.utc)  # Timestamp
@@ -137,7 +161,18 @@ class Mutation:
         # Set the document with the generated ID
         recipe_ref.set(recipe_doc)
 
-        return Recipe(**recipe_doc)
+        return Recipe(
+            user_id=recipe_data.user_id,
+            uid=recipe_id,
+            url=recipe_data.url,
+            name=recipe_data.name,
+            photo_url=recipe_data.photo_url,
+            ingredients=ingredients_list,  # Return as list of dictionaries
+            steps=steps_list,  # Return as list of dictionaries
+            tastes=recipe_data.tastes or [],
+            likes=0,
+            createdAt=recipe_doc["createdAt"].isoformat()
+        )
 
 schema = strawberry.Schema(query=Query, mutation=Mutation)
 
