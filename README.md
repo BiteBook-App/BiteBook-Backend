@@ -38,6 +38,9 @@ To install all dependencies, run:
 pip install -r requirements.txt
 ```
 
+### 3. env File
+Create a GroqCloud account and generate an API key. Set up env file with GROQ_API_KEY={value here}. 
+
 ### 3. Firebase Configuration
 In order for the service to access the BiteBook's Firebase project, you must include a private key.
 
@@ -51,7 +54,7 @@ To do this,
 ### 4. Run the Application
 Run the following command to start up FastAPI
 ```sh
-uvicorn graphql-fastapi-example:app --reload
+uvicorn graphql-fast-api-backend:app --reload
 ```
 
 Once the server starts, you can access the GraphQL endpoint at `http://127.0.0.1:8000/graphql`.
