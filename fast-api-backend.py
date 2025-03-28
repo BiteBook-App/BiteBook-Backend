@@ -44,6 +44,7 @@ class Recipe:
     ingredients: Optional[List[Ingredient]]
     steps: Optional[List[Step]]
     tastes: Optional[List[str]]
+    has_cooked: Optional[bool]
     likes: Optional[int]
     createdAt: Optional[str]
 
@@ -69,6 +70,7 @@ class RecipeInput:
     ingredients: Optional[List[IngredientInput]] = None
     steps: Optional[List[StepInput]] = None
     tastes: Optional[List[str]] = None
+    has_cooked: Optional[bool] = None
 
 # ---------- QUERIES ----------
 @strawberry.type
@@ -154,6 +156,7 @@ class Mutation:
             "ingredients": ingredients_list,  # Store as list of dictionaries
             "steps": steps_list,  # Store as list of dictionaries
             "tastes": recipe_data.tastes or [],
+            "has_cooked": recipe_data.has_cooked,
             "likes": 0,  # Default to 0 likes
             "createdAt": datetime.now(timezone.utc)  # Timestamp
         }
@@ -170,6 +173,7 @@ class Mutation:
             ingredients=ingredients_list,  # Return as list of dictionaries
             steps=steps_list,  # Return as list of dictionaries
             tastes=recipe_data.tastes or [],
+            has_cooked=recipe_data.has_cooked,
             likes=0,
             createdAt=recipe_doc["createdAt"].isoformat()
         )
