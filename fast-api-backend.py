@@ -131,6 +131,29 @@ class Query:
             if (recipe_dict := recipe.to_dict())
         ]
 
+    @strawberry.field
+    def get_recipe(self, recipe_uid: str) -> Recipe:
+        recipe_ref = db.collection("recipes").document(recipe_uid)
+        recipe_doc = recipe_ref.get()
+
+        if not recipe_doc.exists:
+          return None  # Return None if the recipe does not exist
+
+        recipe_dict = recipe_doc.to_dict()
+
+        return Recipe(
+                user_id=recipe_dict.get("user_id"),
+                uid=recipe_dict.get("uid"),
+                url=recipe_dict.get("url"),
+                name=recipe_dict.get("name"),
+                photo_url=recipe_dict.get("photo_url"),
+                ingredients=[Ingredient(name=ing["name"], count=ing["count"]) for ing in recipe_dict.get("ingredients", [])],  # Convert dicts to Ingredient objects
+                steps=[Step(text=step["text"], expanded=step["expanded"]) for step in recipe_dict.get("steps", [])],  # Convert dicts to Step objects
+                tastes=recipe_dict.get("tastes", []),  # Ensure list
+                likes=recipe_dict.get("likes", 0),
+                createdAt=recipe_dict.get("createdAt").isoformat() if recipe_dict.get("createdAt") else None
+       )
+
 # ---------- MUTATIONS ----------
 @strawberry.type
 class Mutation:
