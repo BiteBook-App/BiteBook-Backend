@@ -108,12 +108,14 @@ class Query:
         ]
     
     @strawberry.field
-    def get_recipes(self, user_id: Optional[str] = None) -> list[Recipe]:
+    def get_recipes(self, user_id: Optional[str] = None, has_cooked: Optional[bool] = None) -> list[Recipe]:
         recipes_ref = db.collection("recipes")
         
         # If user_id is provided, filter results
         if user_id:
             recipes_ref = recipes_ref.where("user_id", "==", user_id)
+        if has_cooked is not None:
+            recipes_ref = recipes_ref.where("has_cooked", "==", has_cooked)
 
         recipes = recipes_ref.stream()
         return [
@@ -126,6 +128,7 @@ class Query:
                 ingredients=recipe_dict.get("ingredients", []),
                 steps=recipe_dict.get("steps", []),
                 tastes=recipe_dict.get("tastes", []),
+                has_cooked=recipe_dict.get("has_cooked"),
                 likes=recipe_dict.get("likes", 0),
                 createdAt=recipe_dict.get("createdAt").isoformat() if recipe_dict.get("createdAt") else None
             )
