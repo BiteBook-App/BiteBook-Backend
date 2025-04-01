@@ -107,7 +107,7 @@ class Query:
     
     @strawberry.field
     def get_recipes(self, user_id: Optional[str] = None) -> list[Recipe]:
-        recipes_ref = db.collection("recipes")
+        recipes_ref = db.collection("recipes").order_by("createdAt", direction="DESCENDING")
         
         # If user_id is provided, filter results
         if user_id:
@@ -308,6 +308,46 @@ class Mutation:
             likes=new_likes,
             createdAt=recipe_data.get("createdAt").isoformat() if recipe_data.get("createdAt") else None
         )
+    
+    @strawberry.mutation
+    def edit_user(self, user_id: str, display_name: Optional[str] = None, profile_picture: Optional[str] = None) -> User:
+        # Get reference to the existing user document
+        user_ref = db.collection("users").document(user_id)
+        user_doc = user_ref.get()
+
+        # Check if the recipe exists
+        if not user_doc.exists:
+            raise ValueError(f"User with ID {user_id} not found")
+        
+        # Check if the display name is already taken (excluding the current user)
+        if display_name:
+            users_with_same_name = db.collection("users").where("displayName", "==", display_name).get()
+            
+            for user in users_with_same_name:
+                if user.id != user_id:  # Ensure it's not the same user updating their own name
+                    raise ValueError(f"Display name '{display_name}' is already taken.")
+        
+        if display_name is not None: 
+            user_ref.update({
+                "displayName": display_name,
+            })
+        if profile_picture is not None:
+            user_ref.update({
+                "profilePicture": profile_picture
+            })
+
+        # Fetch the updated user document
+        updated_user_doc = user_ref.get()
+        user_data = updated_user_doc.to_dict()
+
+        # Return updated User object
+        return User(
+            uid=user_id,
+            displayName=user_data.get("displayName"),
+            profilePicture=user_data.get("profilePicture"),
+            createdAt=user_data.get("createdAt").isoformat() if user_data.get("createdAt") else None
+        )
+
 
 
 schema = strawberry.Schema(query=Query, mutation=Mutation)
