@@ -44,6 +44,7 @@ class Recipe:
     ingredients: Optional[List[Ingredient]]
     steps: Optional[List[Step]]
     tastes: Optional[List[str]]
+    has_cooked: Optional[bool]
     likes: Optional[int]
     createdAt: Optional[str]
 
@@ -69,6 +70,7 @@ class RecipeInput:
     ingredients: Optional[List[IngredientInput]] = None
     steps: Optional[List[StepInput]] = None
     tastes: Optional[List[str]] = None
+    has_cooked: Optional[bool] = None
 
 # ---------- QUERIES ----------
 @strawberry.type
@@ -106,12 +108,14 @@ class Query:
         ]
     
     @strawberry.field
-    def get_recipes(self, user_id: Optional[str] = None) -> list[Recipe]:
+    def get_recipes(self, user_id: Optional[str] = None, has_cooked: Optional[bool] = None) -> list[Recipe]:
         recipes_ref = db.collection("recipes").order_by("createdAt", direction="DESCENDING")
         
         # If user_id is provided, filter results
         if user_id:
             recipes_ref = recipes_ref.where("user_id", "==", user_id)
+        if has_cooked is not None:
+            recipes_ref = recipes_ref.where("has_cooked", "==", has_cooked)
 
         recipes = recipes_ref.stream()
         return [
@@ -124,6 +128,7 @@ class Query:
                 ingredients=recipe_dict.get("ingredients", []),
                 steps=recipe_dict.get("steps", []),
                 tastes=recipe_dict.get("tastes", []),
+                has_cooked=recipe_dict.get("has_cooked"),
                 likes=recipe_dict.get("likes", 0),
                 createdAt=recipe_dict.get("createdAt").isoformat() if recipe_dict.get("createdAt") else None
             )
@@ -177,6 +182,7 @@ class Mutation:
             "ingredients": ingredients_list,  # Store as list of dictionaries
             "steps": steps_list,  # Store as list of dictionaries
             "tastes": recipe_data.tastes or [],
+            "has_cooked": recipe_data.has_cooked,
             "likes": 0,  # Default to 0 likes
             "createdAt": datetime.now(timezone.utc)  # Timestamp
         }
@@ -193,6 +199,7 @@ class Mutation:
             ingredients=ingredients_list,  # Return as list of dictionaries
             steps=steps_list,  # Return as list of dictionaries
             tastes=recipe_data.tastes or [],
+            has_cooked=recipe_data.has_cooked,
             likes=0,
             createdAt=recipe_doc["createdAt"].isoformat()
         )
