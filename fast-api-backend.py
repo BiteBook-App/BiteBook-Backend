@@ -7,6 +7,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 from summarize import extract
 from pydantic import BaseModel
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 # Initialize Firebase
 cred = credentials.Certificate("./firebase-admin-sdk/bitebook-admin-credential.json")
@@ -48,6 +49,11 @@ class Recipe:
     likes: Optional[int]
     createdAt: Optional[str]
 
+@strawberry.type
+class Relationship:
+    user_ids: Optional[List[str]]
+    createdAt: Optional[str]
+
 # ---------- MUTATION CLASSES ----------
 
 # Define the Recipe schema (input type for creating a recipe)
@@ -71,6 +77,11 @@ class RecipeInput:
     steps: Optional[List[StepInput]] = None
     tastes: Optional[List[str]] = None
     has_cooked: Optional[bool] = None
+
+@strawberry.input
+class RelationshipInput:
+    first_user_id: str
+    second_user_id: str
 
 # ---------- QUERIES ----------
 @strawberry.type
@@ -138,26 +149,51 @@ class Query:
 
     @strawberry.field
     def get_recipe(self, recipe_uid: str) -> Recipe:
-        recipe_ref = db.collection("recipes").document(recipe_uid)
-        recipe_doc = recipe_ref.get()
+        return fetch_recipe(recipe_uid)
+    
+    @strawberry.field
+    def getHomePageRecipes(self, user_id: Optional[str] = None, num_recipes: Optional[int] = 10) -> List[Recipe]:
+        if not user_id:
+            return []
+        
+        # get all friends from relationships table that has user_id in it
+        relationships_ref = db.collection("relationships")
 
-        if not recipe_doc.exists:
-          return None  # Return None if the recipe does not exist
+        relationships_ref = relationships_ref.where(
+            filter=FieldFilter("user_ids", "array_contains", user_id)
+        )
+        relationships_docs = relationships_ref.stream()
 
-        recipe_dict = recipe_doc.to_dict()
+        home_ids = [user_id]
+        for doc in relationships_docs:
+            user_ids = doc.to_dict().get("user_ids", [])
+            home_ids.append(user_ids[0]) if user_ids[0] != user_id else home_ids.append(user_ids[1])
 
-        return Recipe(
-                user_id=recipe_dict.get("user_id"),
-                uid=recipe_dict.get("uid"),
-                url=recipe_dict.get("url"),
-                name=recipe_dict.get("name"),
-                photo_url=recipe_dict.get("photo_url"),
-                ingredients=[Ingredient(name=ing["name"], count=ing["count"]) for ing in recipe_dict.get("ingredients", [])],  # Convert dicts to Ingredient objects
-                steps=[Step(text=step["text"], expanded=step["expanded"]) for step in recipe_dict.get("steps", [])],  # Convert dicts to Step objects
-                tastes=recipe_dict.get("tastes", []),  # Ensure list
-                likes=recipe_dict.get("likes", 0),
-                createdAt=recipe_dict.get("createdAt").isoformat() if recipe_dict.get("createdAt") else None
-       )
+        # Step 3: Fetch recipes for each user (friend or self) and collect them
+        home_page_recipes = []
+        for home_id in home_ids:
+            recipes_query = db.collection("recipes") \
+                .where("user_id", "==", home_id) \
+                .where("has_cooked", "==", True) \
+                .order_by("createdAt", direction=firestore.Query.DESCENDING) \
+                .limit(num_recipes)
+
+            recipe_docs = recipes_query.stream()
+            for doc in recipe_docs:
+                recipe = fetch_recipe(doc.id)  # Assuming this function fetches and formats the recipe
+                if recipe:
+                    home_page_recipes.append(recipe)
+
+        # Step 4: Sort all recipes by createdAt if there are more than num_recipes
+        home_page_recipes.sort(key=lambda r: r.createdAt or "", reverse=True)
+
+        # Step 5: Return the top N most recent recipes (including the current user and their friends)
+        return home_page_recipes[:num_recipes]
+            
+
+        # for each friend get their recipes, using fetchRecipe
+
+        # give a list of size num_recipes ordered by most recent first from all friends including user_id (current user)
 
 # ---------- MUTATIONS ----------
 @strawberry.type
@@ -354,8 +390,50 @@ class Mutation:
             profilePicture=user_data.get("profilePicture"),
             createdAt=user_data.get("createdAt").isoformat() if user_data.get("createdAt") else None
         )
+    
+    @strawberry.mutation
+    def create_relationship(self, relationship_data: RelationshipInput) -> Relationship:
+        relationship_ref = db.collection("relationships").document()
+        relationship_id = relationship_ref.id  # Get the auto-generated ID
+        
+        # Construct the Firestore document
+        relationship_doc = {
+            "id": relationship_id,
+            "user_ids": [relationship_data.first_user_id, relationship_data.second_user_id],
+            "createdAt": datetime.now(timezone.utc)  # Timestamp
+        }
 
+        # Set the document with the generated ID
+        relationship_ref.set(relationship_doc)
 
+        return Relationship(
+            user_ids = [relationship_data.first_user_id, relationship_data.second_user_id],
+            createdAt=relationship_doc["createdAt"].isoformat()
+        )
+    
+# HELPER FUNCTIONS
+def fetch_recipe(recipe_uid: str) -> Optional[Recipe]:
+    recipe_ref = db.collection("recipes").document(recipe_uid)
+    recipe_doc = recipe_ref.get()
+
+    if not recipe_doc.exists:
+        return None
+
+    recipe_dict = recipe_doc.to_dict()
+
+    return Recipe(
+        user_id=recipe_dict.get("user_id"),
+        uid=recipe_dict.get("uid"),
+        url=recipe_dict.get("url"),
+        name=recipe_dict.get("name"),
+        photo_url=recipe_dict.get("photo_url"),
+        ingredients=[Ingredient(name=ing["name"], count=ing["count"]) for ing in recipe_dict.get("ingredients", [])],
+        steps=[Step(text=step["text"], expanded=step["expanded"]) for step in recipe_dict.get("steps", [])],
+        tastes=recipe_dict.get("tastes", []),
+        has_cooked=recipe_dict.get("has_cooked"),
+        likes=recipe_dict.get("likes", 0),
+        createdAt=recipe_dict.get("createdAt").isoformat() if recipe_dict.get("createdAt") else None
+    )
 
 schema = strawberry.Schema(query=Query, mutation=Mutation)
 
