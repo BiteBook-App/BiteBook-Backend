@@ -156,7 +156,7 @@ class Query:
         if not user_id:
             return []
         
-        # get all friends from relationships table that has user_id in it
+         # Step 1: Get all relationships that contain user_id
         relationships_ref = db.collection("relationships")
 
         relationships_ref = relationships_ref.where(
@@ -164,6 +164,7 @@ class Query:
         )
         relationships_docs = relationships_ref.stream()
 
+         # Step 2: Find all friend IDs that user_id is friends with
         home_ids = [user_id]
         for doc in relationships_docs:
             user_ids = doc.to_dict().get("user_ids", [])
@@ -189,11 +190,6 @@ class Query:
 
         # Step 5: Return the top N most recent recipes (including the current user and their friends)
         return home_page_recipes[:num_recipes]
-            
-
-        # for each friend get their recipes, using fetchRecipe
-
-        # give a list of size num_recipes ordered by most recent first from all friends including user_id (current user)
 
 # ---------- MUTATIONS ----------
 @strawberry.type
