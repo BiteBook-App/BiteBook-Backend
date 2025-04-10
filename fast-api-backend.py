@@ -172,7 +172,7 @@ class Query:
             user_ids = doc.to_dict().get("user_ids", [])
             home_ids.append(user_ids[0]) if user_ids[0] != user_id else home_ids.append(user_ids[1])
 
-        # Step 3: Fetch recipes for each user (friend or self) and collect them
+        # Step 3a: Fetch recipes for each user (friend or self) and collect them
         home_page_recipes = []
         for home_id in home_ids:
             recipes_query = db.collection("recipes") \
@@ -184,8 +184,8 @@ class Query:
             recipe_docs = recipes_query.stream()
             for doc in recipe_docs:
                 recipe = fetch_recipe(doc.id)
+                # Step 3b: Retrieve the user's informaion and append to Recipe object
                 if recipe:
-                    # append user info in user object here
                     user_doc = users_ref.document(recipe.user_id).get()
                     if user_doc.exists:
                         user_dict = user_doc.to_dict()
