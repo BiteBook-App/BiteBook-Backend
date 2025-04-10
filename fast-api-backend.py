@@ -48,6 +48,7 @@ class Recipe:
     has_cooked: Optional[bool]
     likes: Optional[int]
     createdAt: Optional[str]
+    user: Optional[User] = None
 
 @strawberry.type
 class Relationship:
@@ -158,6 +159,7 @@ class Query:
         
          # Step 1: Get all relationships that contain user_id
         relationships_ref = db.collection("relationships")
+        users_ref = db.collection("users")
 
         relationships_ref = relationships_ref.where(
             filter=FieldFilter("user_ids", "array_contains", user_id)
@@ -181,8 +183,19 @@ class Query:
 
             recipe_docs = recipes_query.stream()
             for doc in recipe_docs:
-                recipe = fetch_recipe(doc.id)  # Assuming this function fetches and formats the recipe
+                recipe = fetch_recipe(doc.id)
                 if recipe:
+                    # append user info in user object here
+                    user_doc = users_ref.document(recipe.user_id).get()
+                    if user_doc.exists:
+                        user_dict = user_doc.to_dict()
+                        recipe_user = User(
+                                uid=user_dict.get("uid"),
+                                displayName=user_dict.get("displayName"),
+                                profilePicture=user_dict.get("profilePicture"),
+                                createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None
+                            )
+                        recipe.user = recipe_user
                     home_page_recipes.append(recipe)
 
         # Step 4: Sort all recipes by createdAt if there are more than num_recipes
