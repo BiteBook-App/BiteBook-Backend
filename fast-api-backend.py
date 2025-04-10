@@ -150,7 +150,9 @@ class Query:
 
     @strawberry.field
     def get_recipe(self, recipe_uid: str) -> Recipe:
-        return fetch_recipe(recipe_uid)
+        recipe = fetch_recipe(recipe_uid)
+        recipe.user = fetch_user(recipe.user_id)
+        return recipe
     
     @strawberry.field
     def getHomePageRecipes(self, user_id: Optional[str] = None, num_recipes: Optional[int] = 10) -> List[Recipe]:
@@ -159,7 +161,6 @@ class Query:
         
          # Step 1: Get all relationships that contain user_id
         relationships_ref = db.collection("relationships")
-        users_ref = db.collection("users")
 
         relationships_ref = relationships_ref.where(
             filter=FieldFilter("user_ids", "array_contains", user_id)
@@ -186,16 +187,7 @@ class Query:
                 recipe = fetch_recipe(doc.id)
                 # Step 3b: Retrieve the user's informaion and append to Recipe object
                 if recipe:
-                    user_doc = users_ref.document(recipe.user_id).get()
-                    if user_doc.exists:
-                        user_dict = user_doc.to_dict()
-                        recipe_user = User(
-                                uid=user_dict.get("uid"),
-                                displayName=user_dict.get("displayName"),
-                                profilePicture=user_dict.get("profilePicture"),
-                                createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None
-                            )
-                        recipe.user = recipe_user
+                    recipe.user = fetch_user(recipe.user_id)
                     home_page_recipes.append(recipe)
 
         # Step 4: Sort all recipes by createdAt if there are more than num_recipes
@@ -443,6 +435,19 @@ def fetch_recipe(recipe_uid: str) -> Optional[Recipe]:
         likes=recipe_dict.get("likes", 0),
         createdAt=recipe_dict.get("createdAt").isoformat() if recipe_dict.get("createdAt") else None
     )
+
+def fetch_user(user_id: str) -> Optional[User]:
+        users_ref = db.collection("users")
+        if user_id:
+            user_doc = users_ref.document(user_id).get()
+            if user_doc.exists:
+                user_dict = user_doc.to_dict()
+                return User(
+                        uid=user_dict.get("uid"),
+                        displayName=user_dict.get("displayName"),
+                        profilePicture=user_dict.get("profilePicture"),
+                        createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None
+                    )
 
 schema = strawberry.Schema(query=Query, mutation=Mutation)
 
