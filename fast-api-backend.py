@@ -162,25 +162,20 @@ class Query:
         if not user_id:
             return []
         
-         # Step 1: Get all relationships that contain user_id
-        relationships_ref = db.collection("relationships")
+        # Step 1: Get the user's relationships field
+        user_ref = db.collection("users").document(user_id)
+        user_ref_doc = user_ref.get().to_dict()
 
-        relationships_ref = relationships_ref.where(
-            filter=FieldFilter("user_ids", "array_contains", user_id)
-        )
-        relationships_docs = relationships_ref.stream()
-
-         # Step 2: Find all friend IDs that user_id is friends with
-        home_ids = [user_id]
-        for doc in relationships_docs:
-            user_ids = doc.to_dict().get("user_ids", [])
-            home_ids.append(user_ids[0]) if user_ids[0] != user_id else home_ids.append(user_ids[1])
+        # Get current relationships or empty list if none
+        relationships = user_ref_doc.get("relationships", [])
+        # Add current user since their recipes will also be shown on the home page
+        relationships.append(user_id)
 
         # Step 3a: Fetch recipes for each user (friend or self) and collect them
         home_page_recipes = []
-        for home_id in home_ids:
+        for friend_id in relationships:
             recipes_query = db.collection("recipes") \
-                .where("user_id", "==", home_id) \
+                .where("user_id", "==", friend_id) \
                 .where("has_cooked", "==", True) \
                 .order_by("createdAt", direction=firestore.Query.DESCENDING) \
                 .limit(num_recipes)
@@ -396,20 +391,7 @@ class Mutation:
         )
     
     @strawberry.mutation
-    def create_relationship(self, relationship_data: RelationshipInput) -> Relationship:
-        relationship_ref = db.collection("relationships").document()
-        relationship_id = relationship_ref.id
-        
-        # Construct the Firestore document
-        relationship_doc = {
-            "id": relationship_id,
-            "user_ids": [relationship_data.first_user_id, relationship_data.second_user_id],
-            "createdAt": datetime.now(timezone.utc)
-        }
-
-        # Save the relationship
-        relationship_ref.set(relationship_doc)
-
+    def create_relationship(self, relationship_data: RelationshipInput) -> None:
         # Update users' relationships list
         first_user_ref = db.collection("users").document(relationship_data.first_user_id)
         second_user_ref = db.collection("users").document(relationship_data.second_user_id)
@@ -431,10 +413,7 @@ class Mutation:
         first_user_ref.update({"relationships": first_user_relationships})
         second_user_ref.update({"relationships": second_user_relationships})
 
-        return Relationship(
-            user_ids=[relationship_data.first_user_id, relationship_data.second_user_id],
-            createdAt=relationship_doc["createdAt"].isoformat()
-        )
+        return
     
 # HELPER FUNCTIONS
 def fetch_recipe(recipe_uid: str) -> Optional[Recipe]:
