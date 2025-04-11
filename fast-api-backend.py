@@ -23,6 +23,7 @@ class User:
     displayName: Optional[str] = None
     profilePicture: Optional[str] = None
     createdAt: Optional[str] = None
+    relationships: Optional[List[str]] = None
 
 # Define the Recipe schema (output type for queries)
 @strawberry.type
@@ -101,7 +102,8 @@ class Query:
                         uid=user_dict.get("uid"),
                         displayName=user_dict.get("displayName"),
                         profilePicture=user_dict.get("profilePicture"),
-                        createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None
+                        createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None,
+                        relationships=user_dict.get("relationships", [])
                     )
                 ]
             return []  # Return an empty list if the user does not exist
@@ -113,7 +115,8 @@ class Query:
                 uid=user_dict.get("uid"),
                 displayName=user_dict.get("displayName"),
                 profilePicture=user_dict.get("profilePicture"),
-                createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None
+                createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None,
+                relationships=user_dict.get("relationships", [])
             )
             for user in users
             if (user_dict := user.to_dict())
@@ -395,20 +398,41 @@ class Mutation:
     @strawberry.mutation
     def create_relationship(self, relationship_data: RelationshipInput) -> Relationship:
         relationship_ref = db.collection("relationships").document()
-        relationship_id = relationship_ref.id  # Get the auto-generated ID
+        relationship_id = relationship_ref.id
         
         # Construct the Firestore document
         relationship_doc = {
             "id": relationship_id,
             "user_ids": [relationship_data.first_user_id, relationship_data.second_user_id],
-            "createdAt": datetime.now(timezone.utc)  # Timestamp
+            "createdAt": datetime.now(timezone.utc)
         }
 
-        # Set the document with the generated ID
+        # Save the relationship
         relationship_ref.set(relationship_doc)
 
+        # Update users' relationships list
+        first_user_ref = db.collection("users").document(relationship_data.first_user_id)
+        second_user_ref = db.collection("users").document(relationship_data.second_user_id)
+
+        first_user_doc = first_user_ref.get().to_dict()
+        second_user_doc = second_user_ref.get().to_dict()
+
+        # Get current relationships or empty list if none
+        first_user_relationships = first_user_doc.get("relationships", [])
+        second_user_relationships = second_user_doc.get("relationships", [])
+
+        # Avoid duplicates
+        if relationship_data.second_user_id not in first_user_relationships:
+            first_user_relationships.append(relationship_data.second_user_id)
+        if relationship_data.first_user_id not in second_user_relationships:
+            second_user_relationships.append(relationship_data.first_user_id)
+
+        # Update Firestore
+        first_user_ref.update({"relationships": first_user_relationships})
+        second_user_ref.update({"relationships": second_user_relationships})
+
         return Relationship(
-            user_ids = [relationship_data.first_user_id, relationship_data.second_user_id],
+            user_ids=[relationship_data.first_user_id, relationship_data.second_user_id],
             createdAt=relationship_doc["createdAt"].isoformat()
         )
     
