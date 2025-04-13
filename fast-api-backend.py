@@ -57,6 +57,11 @@ class Relationship:
     user_ids: Optional[List[str]]
     createdAt: Optional[str]
 
+@strawberry.type
+class TasteInformation:
+    taste: Optional[str]
+    percentage: Optional[float]
+
 # ---------- MUTATION CLASSES ----------
 
 # Define the Recipe schema (input type for creating a recipe)
@@ -85,7 +90,6 @@ class RecipeInput:
 class RelationshipInput:
     first_user_id: str
     second_user_id: str
-    has_cooked: Optional[bool] = None
 
 # ---------- QUERIES ----------
 @strawberry.type
@@ -215,6 +219,88 @@ class Query:
 
         # Step 4: Return top N recipes
         return home_page_recipes[:num_recipes]
+    
+    @strawberry.field
+    def get_friends(self, user_id: str) -> List[User]:
+        if not user_id:
+            return []
+        
+        # Step 1: Get the user's relationships field
+        user_ref = db.collection("users").document(user_id)
+        user_ref_doc = user_ref.get().to_dict()
+
+        # Get current relationships or empty list if none
+        relationships = user_ref_doc.get("relationships", [])
+
+        # Step 2: Fetch user information for each relationship
+        friends_info = []
+        for friend_id in relationships:
+            friend_query = db.collection("users") \
+                .where("uid", "==", friend_id) \
+            
+            friend_docs = friend_query.stream()
+            for doc in friend_docs:
+                friend = fetch_user(doc.id)
+                if friend:
+                    friends_info.append(friend)
+        
+        return friends_info
+    
+    @strawberry.field
+    def get_taste_information(self, user_id: str) -> List[TasteInformation]:
+        if not user_id:
+            return []
+
+        # Step 1: Get the current month and year
+        now = datetime.now(timezone.utc)
+        current_year = now.year
+        current_month = now.month
+
+        # Step 2: Fetch all recipes by user
+        recipes_query = db.collection("recipes").where("user_id", "==", user_id)
+        recipe_docs = recipes_query.stream()
+
+        # Step 3: Collect tastes for recipes from the current month
+        total_recipes = 0
+        taste_counts = {
+            "Salty": 0,
+            "Sweet": 0,
+            "Sour": 0,
+            "Bitter": 0,
+            "Umami": 0,
+            "Spicy": 0
+        }
+
+        for doc in recipe_docs:
+            recipe = fetch_recipe(doc.id)
+            if recipe and recipe.createdAt:
+                recipe_date = datetime.fromisoformat(recipe.createdAt)
+                if recipe_date.year == current_year and recipe_date.month == current_month:
+                    total_recipes += 1
+                    for taste in (recipe.tastes or []):
+                        if taste in taste_counts:
+                            taste_counts[taste] += 1
+
+        if total_recipes == 0:
+            # If no recipes, return all tastes with 0%
+            return [
+                TasteInformation(taste=taste, percentage=0.0)
+                for taste in taste_counts.keys()
+            ]
+
+        # Step 4: Calculate percentages
+        taste_info_list = [
+            TasteInformation(
+                taste=taste,
+                percentage=round((count / total_recipes), 2)
+            )
+            for taste, count in taste_counts.items()
+        ]
+
+        # Step 5: Sort by percentage descending
+        taste_info_list.sort(key=lambda x: x.percentage, reverse=True)
+
+        return taste_info_list
 
 # ---------- MUTATIONS ----------
 @strawberry.type
@@ -322,59 +408,59 @@ class Mutation:
             lastUpdatedAt=updated_recipe.get("lastUpdatedAt").isoformat() if updated_recipe.get("lastUpdatedAt") else None
         )
 
-    @strawberry.mutation
-    def toggle_recipe_like(self, recipe_id: str, user_id: str) -> Recipe:
-        # Get reference to the recipe document
-        recipe_ref = db.collection("recipes").document(recipe_id)
-        recipe_doc = recipe_ref.get()
+    # @strawberry.mutation
+    # def toggle_recipe_like(self, recipe_id: str, user_id: str) -> Recipe:
+    #     # Get reference to the recipe document
+    #     recipe_ref = db.collection("recipes").document(recipe_id)
+    #     recipe_doc = recipe_ref.get()
 
-        # Check if the recipe exists
-        if not recipe_doc.exists:
-            raise ValueError(f"Recipe with ID {recipe_id} not found")
+    #     # Check if the recipe exists
+    #     if not recipe_doc.exists:
+    #         raise ValueError(f"Recipe with ID {recipe_id} not found")
 
-        # Get the existing recipe data
-        recipe_data = recipe_doc.to_dict()
+    #     # Get the existing recipe data
+    #     recipe_data = recipe_doc.to_dict()
 
-        # Check if we have a likes_by_user field, if not create it
-        if "likes_by_user" not in recipe_data:
-            recipe_data["likes_by_user"] = []
+    #     # Check if we have a likes_by_user field, if not create it
+    #     if "likes_by_user" not in recipe_data:
+    #         recipe_data["likes_by_user"] = []
 
-        # Get current likes count
-        current_likes = recipe_data.get("likes", 0)
+    #     # Get current likes count
+    #     current_likes = recipe_data.get("likes", 0)
 
-        # Check if user has already liked this recipe
-        if user_id in recipe_data["likes_by_user"]:
-            # User already liked, so remove the like
-            recipe_data["likes_by_user"].remove(user_id)
-            new_likes = max(0, current_likes - 1)  # Ensure likes don't go below 0
-        else:
-            # User hasn't liked, so add the like
-            recipe_data["likes_by_user"].append(user_id)
-            new_likes = current_likes + 1
+    #     # Check if user has already liked this recipe
+    #     if user_id in recipe_data["likes_by_user"]:
+    #         # User already liked, so remove the like
+    #         recipe_data["likes_by_user"].remove(user_id)
+    #         new_likes = max(0, current_likes - 1)  # Ensure likes don't go below 0
+    #     else:
+    #         # User hasn't liked, so add the like
+    #         recipe_data["likes_by_user"].append(user_id)
+    #         new_likes = current_likes + 1
 
-        # Update the likes count
-        recipe_data["likes"] = new_likes
+    #     # Update the likes count
+    #     recipe_data["likes"] = new_likes
 
-        # Update the document in Firestore
-        recipe_ref.update({
-            "likes": new_likes,
-            "likes_by_user": recipe_data["likes_by_user"],
-            "lastUpdatedAt": datetime.now(timezone.utc)
-        })
+    #     # Update the document in Firestore
+    #     recipe_ref.update({
+    #         "likes": new_likes,
+    #         "likes_by_user": recipe_data["likes_by_user"],
+    #         "lastUpdatedAt": datetime.now(timezone.utc)
+    #     })
 
-        # Return the updated Recipe object
-        return Recipe(
-            user_id=recipe_data.get("user_id"),
-            uid=recipe_data.get("uid"),
-            url=recipe_data.get("url"),
-            name=recipe_data.get("name"),
-            photo_url=recipe_data.get("photo_url"),
-            ingredients=recipe_data.get("ingredients", []),
-            steps=recipe_data.get("steps", []),
-            tastes=recipe_data.get("tastes", []),
-            likes=new_likes,
-            createdAt=recipe_data.get("createdAt").isoformat() if recipe_data.get("createdAt") else None
-        )
+    #     # Return the updated Recipe object
+    #     return Recipe(
+    #         user_id=recipe_data.get("user_id"),
+    #         uid=recipe_data.get("uid"),
+    #         url=recipe_data.get("url"),
+    #         name=recipe_data.get("name"),
+    #         photo_url=recipe_data.get("photo_url"),
+    #         ingredients=recipe_data.get("ingredients", []),
+    #         steps=recipe_data.get("steps", []),
+    #         tastes=recipe_data.get("tastes", []),
+    #         likes=new_likes,
+    #         createdAt=recipe_data.get("createdAt").isoformat() if recipe_data.get("createdAt") else None
+    #     )
     
     @strawberry.mutation
     def edit_user(self, user_id: str, display_name: Optional[str] = None, profile_picture: Optional[str] = None) -> User:
