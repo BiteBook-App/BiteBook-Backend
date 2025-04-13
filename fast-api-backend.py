@@ -234,7 +234,7 @@ class Query:
         # Get current relationships or empty list if none
         relationships = user_ref_doc.get("relationships", [])
 
-        # Step 2: Fetch recipes for each relationship
+        # Step 2: Fetch user information for each relationship
         friends_info = []
         for friend_id in relationships:
             friend_query = db.collection("users") \
