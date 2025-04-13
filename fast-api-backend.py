@@ -24,7 +24,6 @@ class User:
     profilePicture: Optional[str] = None
     createdAt: Optional[str] = None
     relationships: Optional[List[str]] = None
-    relationships: Optional[List[str]] = None
 
 # Define the Recipe schema (output type for queries)
 @strawberry.type
@@ -222,6 +221,32 @@ class Query:
 
         # Step 4: Return top N recipes
         return home_page_recipes[:num_recipes]
+    
+    @strawberry.field
+    def get_friends(self, user_id: str) -> List[User]:
+        if not user_id:
+            return []
+        
+        # Step 1: Get the user's relationships field
+        user_ref = db.collection("users").document(user_id)
+        user_ref_doc = user_ref.get().to_dict()
+
+        # Get current relationships or empty list if none
+        relationships = user_ref_doc.get("relationships", [])
+
+        # Step 2: Fetch recipes for each relationship
+        friends_info = []
+        for friend_id in relationships:
+            friend_query = db.collection("users") \
+                .where("uid", "==", friend_id) \
+            
+            friend_docs = friend_query.stream()
+            for doc in friend_docs:
+                friend = fetch_user(doc.id)
+                if friend:
+                    friends_info.append(friend)
+        
+        return friends_info
 
 # ---------- MUTATIONS ----------
 @strawberry.type
