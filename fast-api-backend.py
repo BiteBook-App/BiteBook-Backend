@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from summarize import extract
 from pydantic import BaseModel
 from google.cloud.firestore_v1.base_query import FieldFilter
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 # Initialize Firebase
 cred = credentials.Certificate("./firebase-admin-sdk/bitebook-admin-credential.json")
@@ -23,6 +24,7 @@ class User:
     displayName: Optional[str] = None
     profilePicture: Optional[str] = None
     createdAt: Optional[str] = None
+    relationships: Optional[List[str]] = None
     relationships: Optional[List[str]] = None
 
 # Define the Recipe schema (output type for queries)
@@ -46,6 +48,7 @@ class Recipe:
     ingredients: Optional[List[Ingredient]]
     steps: Optional[List[Step]]
     tastes: Optional[List[str]]
+    has_cooked: Optional[bool]
     has_cooked: Optional[bool]
     likes: Optional[int]
     createdAt: Optional[str]
@@ -85,6 +88,12 @@ class RecipeInput:
 class RelationshipInput:
     first_user_id: str
     second_user_id: str
+    has_cooked: Optional[bool] = None
+
+@strawberry.input
+class RelationshipInput:
+    first_user_id: str
+    second_user_id: str
 
 # ---------- QUERIES ----------
 @strawberry.type
@@ -105,6 +114,8 @@ class Query:
                         profilePicture=user_dict.get("profilePicture"),
                         createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None,
                         relationships=user_dict.get("relationships", [])
+                        createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None,
+                        relationships=user_dict.get("relationships", [])
                     )
                 ]
             return []  # Return an empty list if the user does not exist
@@ -118,6 +129,8 @@ class Query:
                 profilePicture=user_dict.get("profilePicture"),
                 createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None,
                 relationships=user_dict.get("relationships", [])
+                createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None,
+                relationships=user_dict.get("relationships", [])
             )
             for user in users
             if (user_dict := user.to_dict())
@@ -126,10 +139,14 @@ class Query:
     @strawberry.field
     def get_recipes(self, user_id: Optional[str] = None, has_cooked: Optional[bool] = None) -> list[Recipe]:
         recipes_ref = db.collection("recipes").order_by("createdAt", direction="DESCENDING")
+    def get_recipes(self, user_id: Optional[str] = None, has_cooked: Optional[bool] = None) -> list[Recipe]:
+        recipes_ref = db.collection("recipes").order_by("createdAt", direction="DESCENDING")
         
         # If user_id is provided, filter results
         if user_id:
             recipes_ref = recipes_ref.where("user_id", "==", user_id)
+        if has_cooked is not None:
+            recipes_ref = recipes_ref.where("has_cooked", "==", has_cooked)
         if has_cooked is not None:
             recipes_ref = recipes_ref.where("has_cooked", "==", has_cooked)
 
@@ -144,6 +161,7 @@ class Query:
                 ingredients=recipe_dict.get("ingredients", []),
                 steps=recipe_dict.get("steps", []),
                 tastes=recipe_dict.get("tastes", []),
+                has_cooked=recipe_dict.get("has_cooked"),
                 has_cooked=recipe_dict.get("has_cooked"),
                 likes=recipe_dict.get("likes", 0),
                 createdAt=recipe_dict.get("createdAt").isoformat() if recipe_dict.get("createdAt") else None,
@@ -239,6 +257,7 @@ class Mutation:
             "steps": steps_list,  # Store as list of dictionaries
             "tastes": recipe_data.tastes or [],
             "has_cooked": recipe_data.has_cooked,
+            "has_cooked": recipe_data.has_cooked,
             "likes": 0,  # Default to 0 likes
             "createdAt": datetime.now(timezone.utc)  # Timestamp
         }
@@ -255,6 +274,7 @@ class Mutation:
             ingredients=ingredients_list,  # Return as list of dictionaries
             steps=steps_list,  # Return as list of dictionaries
             tastes=recipe_data.tastes or [],
+            has_cooked=recipe_data.has_cooked,
             has_cooked=recipe_data.has_cooked,
             likes=0,
             createdAt=recipe_doc["createdAt"].isoformat(),
