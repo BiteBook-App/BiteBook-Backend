@@ -47,7 +47,6 @@ class Recipe:
     steps: Optional[List[Step]]
     tastes: Optional[List[str]]
     has_cooked: Optional[bool]
-    has_cooked: Optional[bool]
     likes: Optional[int]
     createdAt: Optional[str]
     lastUpdatedAt: Optional[str]
@@ -57,6 +56,11 @@ class Recipe:
 class Relationship:
     user_ids: Optional[List[str]]
     createdAt: Optional[str]
+
+@strawberry.type
+class TasteInformation:
+    taste: Optional[str]
+    percentage: Optional[float]
 
 # ---------- MUTATION CLASSES ----------
 
@@ -87,11 +91,6 @@ class RelationshipInput:
     first_user_id: str
     second_user_id: str
     has_cooked: Optional[bool] = None
-
-@strawberry.input
-class RelationshipInput:
-    first_user_id: str
-    second_user_id: str
 
 # ---------- QUERIES ----------
 @strawberry.type
@@ -247,6 +246,62 @@ class Query:
                     friends_info.append(friend)
         
         return friends_info
+    
+    @strawberry.field
+    def get_taste_information(self, user_id: str) -> List[TasteInformation]:
+        if not user_id:
+            return []
+
+        # Step 1: Get the current month and year
+        now = datetime.now(timezone.utc)
+        current_year = now.year
+        current_month = now.month
+
+        # Step 2: Fetch all recipes by user
+        recipes_query = db.collection("recipes").where("user_id", "==", user_id)
+        recipe_docs = recipes_query.stream()
+
+        # Step 3: Collect tastes for recipes from the current month
+        total_recipes = 0
+        taste_counts = {
+            "Salty": 0,
+            "Sweet": 0,
+            "Sour": 0,
+            "Bitter": 0,
+            "Umami": 0,
+            "Spicy": 0
+        }
+
+        for doc in recipe_docs:
+            recipe = fetch_recipe(doc.id)
+            if recipe and recipe.createdAt:
+                recipe_date = datetime.fromisoformat(recipe.createdAt)
+                if recipe_date.year == current_year and recipe_date.month == current_month:
+                    total_recipes += 1
+                    for taste in (recipe.tastes or []):
+                        if taste in taste_counts:
+                            taste_counts[taste] += 1
+
+        if total_recipes == 0:
+            # If no recipes, return all tastes with 0%
+            return [
+                TasteInformation(taste=taste, percentage=0.0)
+                for taste in taste_counts.keys()
+            ]
+
+        # Step 4: Calculate percentages
+        taste_info_list = [
+            TasteInformation(
+                taste=taste,
+                percentage=round((count / total_recipes), 2)
+            )
+            for taste, count in taste_counts.items()
+        ]
+
+        # Step 5: Sort by percentage descending
+        taste_info_list.sort(key=lambda x: x.percentage, reverse=True)
+
+        return taste_info_list
 
 # ---------- MUTATIONS ----------
 @strawberry.type
