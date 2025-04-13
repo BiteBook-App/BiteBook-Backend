@@ -47,7 +47,6 @@ class Recipe:
     steps: Optional[List[Step]]
     tastes: Optional[List[str]]
     has_cooked: Optional[bool]
-    has_cooked: Optional[bool]
     likes: Optional[int]
     createdAt: Optional[str]
     lastUpdatedAt: Optional[str]
@@ -87,11 +86,6 @@ class RelationshipInput:
     first_user_id: str
     second_user_id: str
     has_cooked: Optional[bool] = None
-
-@strawberry.input
-class RelationshipInput:
-    first_user_id: str
-    second_user_id: str
 
 # ---------- QUERIES ----------
 @strawberry.type
