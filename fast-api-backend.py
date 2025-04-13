@@ -24,7 +24,6 @@ class User:
     profilePicture: Optional[str] = None
     createdAt: Optional[str] = None
     relationships: Optional[List[str]] = None
-    relationships: Optional[List[str]] = None
 
 # Define the Recipe schema (output type for queries)
 @strawberry.type
