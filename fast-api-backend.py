@@ -77,6 +77,11 @@ class RecipeInput:
     steps: Optional[List[StepInput]] = None
     tastes: Optional[List[str]] = None
 
+@strawberry.input
+class RelationshipInput:
+    first_user_id: str
+    second_user_id: str
+
 # ---------- QUERIES ----------
 @strawberry.type
 class Query:
