@@ -24,6 +24,7 @@ class User:
     profilePicture: Optional[str] = None
     createdAt: Optional[str] = None
     relationships: Optional[List[str]] = None
+    relationships: Optional[List[str]] = None
 
 # Define the Recipe schema (output type for queries)
 @strawberry.type
@@ -47,8 +48,10 @@ class Recipe:
     steps: Optional[List[Step]]
     tastes: Optional[List[str]]
     has_cooked: Optional[bool]
+    has_cooked: Optional[bool]
     likes: Optional[int]
     createdAt: Optional[str]
+    lastUpdatedAt: Optional[str]
     user: Optional[User] = None
 
 @strawberry.type
@@ -78,6 +81,12 @@ class RecipeInput:
     ingredients: Optional[List[IngredientInput]] = None
     steps: Optional[List[StepInput]] = None
     tastes: Optional[List[str]] = None
+    has_cooked: Optional[bool] = None
+
+@strawberry.input
+class RelationshipInput:
+    first_user_id: str
+    second_user_id: str
     has_cooked: Optional[bool] = None
 
 @strawberry.input
@@ -133,7 +142,7 @@ class Query:
             recipes_ref = recipes_ref.where("has_cooked", "==", has_cooked)
 
         recipes = recipes_ref.stream()
-        return [
+        recipe_list = [
             Recipe(
                 user_id=recipe_dict.get("user_id"),
                 uid=recipe_dict.get("uid"),
@@ -145,11 +154,25 @@ class Query:
                 tastes=recipe_dict.get("tastes", []),
                 has_cooked=recipe_dict.get("has_cooked"),
                 likes=recipe_dict.get("likes", 0),
-                createdAt=recipe_dict.get("createdAt").isoformat() if recipe_dict.get("createdAt") else None
+                createdAt=recipe_dict.get("createdAt").isoformat() if recipe_dict.get("createdAt") else None,
+                lastUpdatedAt=recipe_dict.get("lastUpdatedAt").isoformat() if recipe_dict.get("lastUpdatedAt") else None
             )
             for recipe in recipes
             if (recipe_dict := recipe.to_dict())
         ]
+
+        # Sort recipes by the latest of createdAt and lastUpdatedAt (most recent first)
+        recipe_list.sort(
+            key=lambda r: max(
+                [dt for dt in [
+                    datetime.fromisoformat(r.createdAt) if r.createdAt else None,
+                    datetime.fromisoformat(r.lastUpdatedAt) if r.lastUpdatedAt else None
+                ] if dt is not None]
+            ),
+            reverse=True
+        )
+
+        return recipe_list
 
     @strawberry.field
     def get_recipe(self, recipe_uid: str) -> Recipe:
@@ -168,10 +191,9 @@ class Query:
 
         # Get current relationships or empty list if none
         relationships = user_ref_doc.get("relationships", [])
-        # Add current user since their recipes will also be shown on the home page
-        relationships.append(user_id)
+        relationships.append(user_id)  # Include user's own recipes
 
-        # Step 3a: Fetch recipes for each user (friend or self) and collect them
+        # Step 2: Fetch recipes for each relationship
         home_page_recipes = []
         for friend_id in relationships:
             recipes_query = db.collection("recipes") \
@@ -183,15 +205,22 @@ class Query:
             recipe_docs = recipes_query.stream()
             for doc in recipe_docs:
                 recipe = fetch_recipe(doc.id)
-                # Step 3b: Retrieve the user's informaion and append to Recipe object
                 if recipe:
                     recipe.user = fetch_user(recipe.user_id)
                     home_page_recipes.append(recipe)
 
-        # Step 4: Sort all recipes by createdAt if there are more than num_recipes
-        home_page_recipes.sort(key=lambda r: r.createdAt or "", reverse=True)
+        # Step 3: Sort recipes by the latest of createdAt or lastUpdatedAt
+        def get_latest_datetime(recipe):
+            dates = []
+            if recipe.createdAt:
+                dates.append(datetime.fromisoformat(recipe.createdAt))
+            if recipe.lastUpdatedAt:
+                dates.append(datetime.fromisoformat(recipe.lastUpdatedAt))
+            return max(dates) if dates else datetime.min
 
-        # Step 5: Return the top N most recent recipes (including the current user and their friends)
+        home_page_recipes.sort(key=get_latest_datetime, reverse=True)
+
+        # Step 4: Return top N recipes
         return home_page_recipes[:num_recipes]
 
 # ---------- MUTATIONS ----------
@@ -218,6 +247,7 @@ class Mutation:
             "steps": steps_list,  # Store as list of dictionaries
             "tastes": recipe_data.tastes or [],
             "has_cooked": recipe_data.has_cooked,
+            "has_cooked": recipe_data.has_cooked,
             "likes": 0,  # Default to 0 likes
             "createdAt": datetime.now(timezone.utc)  # Timestamp
         }
@@ -236,7 +266,8 @@ class Mutation:
             tastes=recipe_data.tastes or [],
             has_cooked=recipe_data.has_cooked,
             likes=0,
-            createdAt=recipe_doc["createdAt"].isoformat()
+            createdAt=recipe_doc["createdAt"].isoformat(),
+            lastUpdatedAt=None
         )
 
     @strawberry.mutation
@@ -248,9 +279,6 @@ class Mutation:
         # Check if the recipe exists
         if not recipe_doc.exists:
             raise ValueError(f"Recipe with ID {recipe_id} not found")
-
-        # Get the existing recipe data
-        existing_recipe = recipe_doc.to_dict()
 
         # Convert IngredientInput and StepInput objects into dictionaries
         ingredients_list = [{"name": ing.name, "count": ing.count} for ing in (recipe_data.ingredients or [])]
@@ -265,6 +293,8 @@ class Mutation:
             update_data["url"] = recipe_data.url
         if recipe_data.name is not None:
             update_data["name"] = recipe_data.name
+        if recipe_data.has_cooked is not None:
+            update_data["has_cooked"] = recipe_data.has_cooked
         if recipe_data.photo_url is not None:
             update_data["photo_url"] = recipe_data.photo_url
         if recipe_data.ingredients is not None:
@@ -289,12 +319,14 @@ class Mutation:
             uid=updated_recipe.get("uid"),
             url=updated_recipe.get("url"),
             name=updated_recipe.get("name"),
+            has_cooked=updated_recipe.get("has_cooked"),
             photo_url=updated_recipe.get("photo_url"),
             ingredients=updated_recipe.get("ingredients", []),
             steps=updated_recipe.get("steps", []),
             tastes=updated_recipe.get("tastes", []),
             likes=updated_recipe.get("likes", 0),
-            createdAt=updated_recipe.get("createdAt").isoformat() if updated_recipe.get("createdAt") else None
+            createdAt=updated_recipe.get("createdAt").isoformat() if updated_recipe.get("createdAt") else None,
+            lastUpdatedAt=updated_recipe.get("lastUpdatedAt").isoformat() if updated_recipe.get("lastUpdatedAt") else None
         )
 
     @strawberry.mutation
@@ -436,7 +468,8 @@ def fetch_recipe(recipe_uid: str) -> Optional[Recipe]:
         tastes=recipe_dict.get("tastes", []),
         has_cooked=recipe_dict.get("has_cooked"),
         likes=recipe_dict.get("likes", 0),
-        createdAt=recipe_dict.get("createdAt").isoformat() if recipe_dict.get("createdAt") else None
+        createdAt=recipe_dict.get("createdAt").isoformat() if recipe_dict.get("createdAt") else None,
+        lastUpdatedAt=recipe_dict.get("lastUpdatedAt").isoformat() if recipe_dict.get("lastUpdatedAt") else None
     )
 
 def fetch_user(user_id: str) -> Optional[User]:
