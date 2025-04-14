@@ -1,3 +1,4 @@
+from urllib.parse import unquote, urlparse
 import strawberry
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -8,10 +9,13 @@ from datetime import datetime, timezone
 from summarize import extract
 from pydantic import BaseModel
 from google.cloud.firestore_v1.base_query import FieldFilter
+from firebase_admin import storage
 
 # Initialize Firebase
 cred = credentials.Certificate("./firebase-admin-sdk/bitebook-admin-credential.json")
-firebase_admin.initialize_app(cred)
+firebase_admin.initialize_app(cred, {
+    'storageBucket': 'bitebook-e7770.firebasestorage.app'
+})
 db = firestore.client()
 
 # ---------- QUERY CLASSES ----------
@@ -64,7 +68,9 @@ class TasteInformation:
 
 @strawberry.type
 class TastePageContent:
-    taste_information: Optional[List[TasteInformation]]
+    num_recipes: Optional[int]
+    num_taste_profiles: Optional[int]
+    taste_percentages: Optional[List[TasteInformation]]
     recommendations: Optional[List[Recipe]]
 
 # ---------- MUTATION CLASSES ----------
@@ -93,6 +99,11 @@ class RecipeInput:
 
 @strawberry.input
 class RelationshipInput:
+    first_user_id: str
+    second_user_id: str
+
+@strawberry.input
+class DeleteRelationshipInput:
     first_user_id: str
     second_user_id: str
 
@@ -217,16 +228,13 @@ class Query:
         if not user_id:
             return []
 
-        # Step 1: Get the current month and year
         now = datetime.now(timezone.utc)
         current_year = now.year
         current_month = now.month
 
-        # Step 2: Fetch all recipes by user
         recipes_query = db.collection("recipes").where("user_id", "==", user_id)
         recipe_docs = recipes_query.stream()
 
-        # Step 3: Collect tastes for recipes from the current month
         total_recipes = 0
         taste_counts = {
             "Salty": 0,
@@ -249,7 +257,6 @@ class Query:
 
         taste_info_list = []
         if total_recipes != 0:
-            # Step 4: Calculate percentages
             taste_info_list = [
                 TasteInformation(
                     taste=taste,
@@ -258,16 +265,12 @@ class Query:
                 for taste, count in taste_counts.items()
             ]
 
-        # Step 5: Sort by percentage descending
         taste_info_list.sort(key=lambda x: x.percentage, reverse=True)
 
-        # Step 6: Get top three tastes with non-zero percentages
         top_tastes = [t.taste for t in taste_info_list if t.percentage > 0][:3]
 
-        # Step 7: Get homepage recipes
         home_page_recipes = get_home_page_recipes_for_user(user_id, num_recipes=10, recommendations=True)
 
-        # Step 8: Filter recipes containing any of the top tastes
         recommendations = []
         if top_tastes:
             recommendations = [
@@ -275,9 +278,13 @@ class Query:
                 if any(taste in (recipe.tastes) for taste in top_tastes)
             ]
 
-        # Step 9: Return TastePageContent
+        # Number of non-zero taste percentages
+        num_non_zero_tastes = sum(1 for t in taste_info_list if t.percentage > 0)
+
         return TastePageContent(
-            taste_information=taste_info_list,
+            num_recipes=total_recipes,
+            num_taste_profiles=num_non_zero_tastes,
+            taste_percentages=taste_info_list,
             recommendations=recommendations
         )
 
@@ -451,6 +458,57 @@ class Mutation:
 
         return
     
+    @strawberry.mutation
+    def delete_relationship(self, relationship_data: DeleteRelationshipInput) -> None:
+        first_user_ref = db.collection("users").document(relationship_data.first_user_id)
+        second_user_ref = db.collection("users").document(relationship_data.second_user_id)
+
+        first_user_doc = first_user_ref.get().to_dict()
+        second_user_doc = second_user_ref.get().to_dict()
+
+        # Get current relationships or empty list if none
+        first_user_relationships = first_user_doc.get("relationships", [])
+        second_user_relationships = second_user_doc.get("relationships", [])
+
+        # Remove the relationship if it exists
+        if relationship_data.second_user_id in first_user_relationships:
+            first_user_relationships.remove(relationship_data.second_user_id)
+        if relationship_data.first_user_id in second_user_relationships:
+            second_user_relationships.remove(relationship_data.first_user_id)
+
+        # Update Firestore
+        first_user_ref.update({"relationships": first_user_relationships})
+        second_user_ref.update({"relationships": second_user_relationships})
+    
+    @strawberry.mutation
+    def delete_recipe(self, recipe_id: str) -> None:
+        # Get reference to the existing recipe document
+        recipe_ref = db.collection("recipes").document(recipe_id)
+        recipe_doc = recipe_ref.get()
+
+        # Check if the recipe exists
+        if not recipe_doc.exists:
+            raise ValueError(f"Recipe with ID {recipe_id} not found")
+        
+        recipe_dict = recipe_doc.to_dict()
+        photo_url = recipe_dict.get("photo_url")
+
+        # Remove the photo from Firebase storage
+        if photo_url:
+            bucket = storage.bucket()
+            # Extract the blob path from the URL
+            parsed_url = urlparse(photo_url)
+            # The `o` path is everything after '/o/', URL-decoded
+            blob_path = unquote(parsed_url.path.split('/o/')[1])
+            blob = bucket.blob(blob_path)
+            if blob.exists():
+                blob.delete()
+                print("Recipe photo deleted.")
+
+        # Remove recipe from Recipes
+        recipe_ref.delete()
+        print("Recipe deleted.")
+    
 # HELPER FUNCTIONS
 def fetch_recipe(recipe_uid: str) -> Optional[Recipe]:
     recipe_ref = db.collection("recipes").document(recipe_uid)
@@ -493,16 +551,17 @@ def get_home_page_recipes_for_user(user_id: Optional[str], num_recipes: Optional
     if not user_id:
         return []
 
-    # Get the user's relationships
     user_ref = db.collection("users").document(user_id)
     user_ref_doc = user_ref.get().to_dict()
 
     relationships = user_ref_doc.get("relationships", []) if user_ref_doc else []
 
     if not recommendations:
-        relationships.append(user_id)  # Include user's own recipes
+        relationships.append(user_id)
 
     home_page_recipes = []
+
+    now = datetime.now()
 
     for friend_id in relationships:
         recipes_query = db.collection("recipes") \
@@ -512,11 +571,20 @@ def get_home_page_recipes_for_user(user_id: Optional[str], num_recipes: Optional
             .limit(num_recipes)
 
         recipe_docs = recipes_query.stream()
+
         for doc in recipe_docs:
             recipe = fetch_recipe(doc.id)
             if recipe:
-                recipe.user = fetch_user(recipe.user_id)
-                home_page_recipes.append(recipe)
+                recipe_created_at = datetime.fromisoformat(recipe.createdAt)
+
+                if recommendations:
+                    # Keep only recipes from the same month and year
+                    if recipe_created_at.year == now.year and recipe_created_at.month == now.month:
+                        recipe.user = fetch_user(recipe.user_id)
+                        home_page_recipes.append(recipe)
+                else:
+                    recipe.user = fetch_user(recipe.user_id)
+                    home_page_recipes.append(recipe)
 
     def get_latest_datetime(recipe):
         dates = []
