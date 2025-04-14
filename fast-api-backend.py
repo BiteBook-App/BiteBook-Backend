@@ -282,11 +282,7 @@ class Query:
                             taste_counts[taste] += 1
 
         if total_recipes == 0:
-            # If no recipes, return all tastes with 0%
-            return [
-                TasteInformation(taste=taste, percentage=0.0)
-                for taste in taste_counts.keys()
-            ]
+            return []
 
         # Step 4: Calculate percentages
         taste_info_list = [
