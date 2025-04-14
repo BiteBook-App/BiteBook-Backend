@@ -68,7 +68,9 @@ class TasteInformation:
 
 @strawberry.type
 class TastePageContent:
-    taste_information: Optional[List[TasteInformation]]
+    num_recipes: Optional[int]
+    num_taste_profiles: Optional[int]
+    taste_percentages: Optional[List[TasteInformation]]
     recommendations: Optional[List[Recipe]]
 
 # ---------- MUTATION CLASSES ----------
@@ -226,16 +228,13 @@ class Query:
         if not user_id:
             return []
 
-        # Step 1: Get the current month and year
         now = datetime.now(timezone.utc)
         current_year = now.year
         current_month = now.month
 
-        # Step 2: Fetch all recipes by user
         recipes_query = db.collection("recipes").where("user_id", "==", user_id)
         recipe_docs = recipes_query.stream()
 
-        # Step 3: Collect tastes for recipes from the current month
         total_recipes = 0
         taste_counts = {
             "Salty": 0,
@@ -258,7 +257,6 @@ class Query:
 
         taste_info_list = []
         if total_recipes != 0:
-            # Step 4: Calculate percentages
             taste_info_list = [
                 TasteInformation(
                     taste=taste,
@@ -267,16 +265,12 @@ class Query:
                 for taste, count in taste_counts.items()
             ]
 
-        # Step 5: Sort by percentage descending
         taste_info_list.sort(key=lambda x: x.percentage, reverse=True)
 
-        # Step 6: Get top three tastes with non-zero percentages
         top_tastes = [t.taste for t in taste_info_list if t.percentage > 0][:3]
 
-        # Step 7: Get homepage recipes
         home_page_recipes = get_home_page_recipes_for_user(user_id, num_recipes=10, recommendations=True)
 
-        # Step 8: Filter recipes containing any of the top tastes
         recommendations = []
         if top_tastes:
             recommendations = [
@@ -284,9 +278,13 @@ class Query:
                 if any(taste in (recipe.tastes) for taste in top_tastes)
             ]
 
-        # Step 9: Return TastePageContent
+        # Number of non-zero taste percentages
+        num_non_zero_tastes = sum(1 for t in taste_info_list if t.percentage > 0)
+
         return TastePageContent(
-            taste_information=taste_info_list,
+            num_recipes=total_recipes,
+            num_taste_profiles=num_non_zero_tastes,
+            taste_percentages=taste_info_list,
             recommendations=recommendations
         )
 
@@ -553,16 +551,17 @@ def get_home_page_recipes_for_user(user_id: Optional[str], num_recipes: Optional
     if not user_id:
         return []
 
-    # Get the user's relationships
     user_ref = db.collection("users").document(user_id)
     user_ref_doc = user_ref.get().to_dict()
 
     relationships = user_ref_doc.get("relationships", []) if user_ref_doc else []
 
     if not recommendations:
-        relationships.append(user_id)  # Include user's own recipes
+        relationships.append(user_id)
 
     home_page_recipes = []
+
+    now = datetime.now()
 
     for friend_id in relationships:
         recipes_query = db.collection("recipes") \
@@ -572,11 +571,20 @@ def get_home_page_recipes_for_user(user_id: Optional[str], num_recipes: Optional
             .limit(num_recipes)
 
         recipe_docs = recipes_query.stream()
+
         for doc in recipe_docs:
             recipe = fetch_recipe(doc.id)
             if recipe:
-                recipe.user = fetch_user(recipe.user_id)
-                home_page_recipes.append(recipe)
+                recipe_created_at = datetime.fromisoformat(recipe.createdAt)
+
+                if recommendations:
+                    # Keep only recipes from the same month and year
+                    if recipe_created_at.year == now.year and recipe_created_at.month == now.month:
+                        recipe.user = fetch_user(recipe.user_id)
+                        home_page_recipes.append(recipe)
+                else:
+                    recipe.user = fetch_user(recipe.user_id)
+                    home_page_recipes.append(recipe)
 
     def get_latest_datetime(recipe):
         dates = []
