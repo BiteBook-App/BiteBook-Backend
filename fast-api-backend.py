@@ -62,6 +62,11 @@ class TasteInformation:
     taste: Optional[str]
     percentage: Optional[float]
 
+@strawberry.type
+class TastePageContent:
+    taste_information: Optional[List[TasteInformation]]
+    recommendations: Optional[List[Recipe]]
+
 # ---------- MUTATION CLASSES ----------
 
 # Define the Recipe schema (input type for creating a recipe)
@@ -179,47 +184,8 @@ class Query:
     
     @strawberry.field
     def getHomePageRecipes(self, user_id: Optional[str] = None, num_recipes: Optional[int] = 10) -> List[Recipe]:
-        if not user_id:
-            return []
-        
-        # Step 1: Get the user's relationships field
-        user_ref = db.collection("users").document(user_id)
-        user_ref_doc = user_ref.get().to_dict()
+        return get_home_page_recipes_for_user(user_id, num_recipes, recommendations=False)
 
-        # Get current relationships or empty list if none
-        relationships = user_ref_doc.get("relationships", [])
-        relationships.append(user_id)  # Include user's own recipes
-
-        # Step 2: Fetch recipes for each relationship
-        home_page_recipes = []
-        for friend_id in relationships:
-            recipes_query = db.collection("recipes") \
-                .where("user_id", "==", friend_id) \
-                .where("has_cooked", "==", True) \
-                .order_by("createdAt", direction=firestore.Query.DESCENDING) \
-                .limit(num_recipes)
-
-            recipe_docs = recipes_query.stream()
-            for doc in recipe_docs:
-                recipe = fetch_recipe(doc.id)
-                if recipe:
-                    recipe.user = fetch_user(recipe.user_id)
-                    home_page_recipes.append(recipe)
-
-        # Step 3: Sort recipes by the latest of createdAt or lastUpdatedAt
-        def get_latest_datetime(recipe):
-            dates = []
-            if recipe.createdAt:
-                dates.append(datetime.fromisoformat(recipe.createdAt))
-            if recipe.lastUpdatedAt:
-                dates.append(datetime.fromisoformat(recipe.lastUpdatedAt))
-            return max(dates) if dates else datetime.min
-
-        home_page_recipes.sort(key=get_latest_datetime, reverse=True)
-
-        # Step 4: Return top N recipes
-        return home_page_recipes[:num_recipes]
-    
     @strawberry.field
     def get_friends(self, user_id: str) -> List[User]:
         if not user_id:
@@ -247,7 +213,7 @@ class Query:
         return friends_info
     
     @strawberry.field
-    def get_taste_information(self, user_id: str) -> List[TasteInformation]:
+    def get_taste_page_info(self, user_id: str) -> TastePageContent:
         if not user_id:
             return []
 
@@ -281,22 +247,39 @@ class Query:
                         if taste in taste_counts:
                             taste_counts[taste] += 1
 
-        if total_recipes == 0:
-            return []
-
-        # Step 4: Calculate percentages
-        taste_info_list = [
-            TasteInformation(
-                taste=taste,
-                percentage=round((count / total_recipes), 2)
-            )
-            for taste, count in taste_counts.items()
-        ]
+        taste_info_list = []
+        if total_recipes != 0:
+            # Step 4: Calculate percentages
+            taste_info_list = [
+                TasteInformation(
+                    taste=taste,
+                    percentage=round((count / total_recipes), 2)
+                )
+                for taste, count in taste_counts.items()
+            ]
 
         # Step 5: Sort by percentage descending
         taste_info_list.sort(key=lambda x: x.percentage, reverse=True)
 
-        return taste_info_list
+        # Step 6: Get top three tastes with non-zero percentages
+        top_tastes = [t.taste for t in taste_info_list if t.percentage > 0][:3]
+
+        # Step 7: Get homepage recipes
+        home_page_recipes = get_home_page_recipes_for_user(user_id, num_recipes=10, recommendations=True)
+
+        # Step 8: Filter recipes containing any of the top tastes
+        recommendations = []
+        if top_tastes:
+            recommendations = [
+                recipe for recipe in home_page_recipes
+                if any(taste in (recipe.tastes) for taste in top_tastes)
+            ]
+
+        # Step 9: Return TastePageContent
+        return TastePageContent(
+            taste_information=taste_info_list,
+            recommendations=recommendations
+        )
 
 # ---------- MUTATIONS ----------
 @strawberry.type
@@ -403,60 +386,6 @@ class Mutation:
             createdAt=updated_recipe.get("createdAt").isoformat() if updated_recipe.get("createdAt") else None,
             lastUpdatedAt=updated_recipe.get("lastUpdatedAt").isoformat() if updated_recipe.get("lastUpdatedAt") else None
         )
-
-    # @strawberry.mutation
-    # def toggle_recipe_like(self, recipe_id: str, user_id: str) -> Recipe:
-    #     # Get reference to the recipe document
-    #     recipe_ref = db.collection("recipes").document(recipe_id)
-    #     recipe_doc = recipe_ref.get()
-
-    #     # Check if the recipe exists
-    #     if not recipe_doc.exists:
-    #         raise ValueError(f"Recipe with ID {recipe_id} not found")
-
-    #     # Get the existing recipe data
-    #     recipe_data = recipe_doc.to_dict()
-
-    #     # Check if we have a likes_by_user field, if not create it
-    #     if "likes_by_user" not in recipe_data:
-    #         recipe_data["likes_by_user"] = []
-
-    #     # Get current likes count
-    #     current_likes = recipe_data.get("likes", 0)
-
-    #     # Check if user has already liked this recipe
-    #     if user_id in recipe_data["likes_by_user"]:
-    #         # User already liked, so remove the like
-    #         recipe_data["likes_by_user"].remove(user_id)
-    #         new_likes = max(0, current_likes - 1)  # Ensure likes don't go below 0
-    #     else:
-    #         # User hasn't liked, so add the like
-    #         recipe_data["likes_by_user"].append(user_id)
-    #         new_likes = current_likes + 1
-
-    #     # Update the likes count
-    #     recipe_data["likes"] = new_likes
-
-    #     # Update the document in Firestore
-    #     recipe_ref.update({
-    #         "likes": new_likes,
-    #         "likes_by_user": recipe_data["likes_by_user"],
-    #         "lastUpdatedAt": datetime.now(timezone.utc)
-    #     })
-
-    #     # Return the updated Recipe object
-    #     return Recipe(
-    #         user_id=recipe_data.get("user_id"),
-    #         uid=recipe_data.get("uid"),
-    #         url=recipe_data.get("url"),
-    #         name=recipe_data.get("name"),
-    #         photo_url=recipe_data.get("photo_url"),
-    #         ingredients=recipe_data.get("ingredients", []),
-    #         steps=recipe_data.get("steps", []),
-    #         tastes=recipe_data.get("tastes", []),
-    #         likes=new_likes,
-    #         createdAt=recipe_data.get("createdAt").isoformat() if recipe_data.get("createdAt") else None
-    #     )
     
     @strawberry.mutation
     def edit_user(self, user_id: str, display_name: Optional[str] = None, profile_picture: Optional[str] = None) -> User:
@@ -559,6 +488,47 @@ def fetch_user(user_id: str) -> Optional[User]:
                         profilePicture=user_dict.get("profilePicture"),
                         createdAt=user_dict.get("createdAt").isoformat() if user_dict.get("createdAt") else None
                     )
+            
+def get_home_page_recipes_for_user(user_id: Optional[str], num_recipes: Optional[int] = 10, recommendations=False) -> List[Recipe]:
+    if not user_id:
+        return []
+
+    # Get the user's relationships
+    user_ref = db.collection("users").document(user_id)
+    user_ref_doc = user_ref.get().to_dict()
+
+    relationships = user_ref_doc.get("relationships", []) if user_ref_doc else []
+
+    if not recommendations:
+        relationships.append(user_id)  # Include user's own recipes
+
+    home_page_recipes = []
+
+    for friend_id in relationships:
+        recipes_query = db.collection("recipes") \
+            .where("user_id", "==", friend_id) \
+            .where("has_cooked", "==", True) \
+            .order_by("createdAt", direction=firestore.Query.DESCENDING) \
+            .limit(num_recipes)
+
+        recipe_docs = recipes_query.stream()
+        for doc in recipe_docs:
+            recipe = fetch_recipe(doc.id)
+            if recipe:
+                recipe.user = fetch_user(recipe.user_id)
+                home_page_recipes.append(recipe)
+
+    def get_latest_datetime(recipe):
+        dates = []
+        if recipe.createdAt:
+            dates.append(datetime.fromisoformat(recipe.createdAt))
+        if recipe.lastUpdatedAt:
+            dates.append(datetime.fromisoformat(recipe.lastUpdatedAt))
+        return max(dates) if dates else datetime.min
+
+    home_page_recipes.sort(key=get_latest_datetime, reverse=True)
+
+    return home_page_recipes[:num_recipes]
 
 schema = strawberry.Schema(query=Query, mutation=Mutation)
 
