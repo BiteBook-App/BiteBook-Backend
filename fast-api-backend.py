@@ -1,3 +1,4 @@
+from urllib.parse import unquote, urlparse
 import strawberry
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -8,10 +9,13 @@ from datetime import datetime, timezone
 from summarize import extract
 from pydantic import BaseModel
 from google.cloud.firestore_v1.base_query import FieldFilter
+from firebase_admin import storage
 
 # Initialize Firebase
 cred = credentials.Certificate("./firebase-admin-sdk/bitebook-admin-credential.json")
-firebase_admin.initialize_app(cred)
+firebase_admin.initialize_app(cred, {
+    'storageBucket': 'bitebook-e7770.firebasestorage.app'
+})
 db = firestore.client()
 
 # ---------- QUERY CLASSES ----------
@@ -93,6 +97,11 @@ class RecipeInput:
 
 @strawberry.input
 class RelationshipInput:
+    first_user_id: str
+    second_user_id: str
+
+@strawberry.input
+class DeleteRelationshipInput:
     first_user_id: str
     second_user_id: str
 
@@ -450,6 +459,57 @@ class Mutation:
         second_user_ref.update({"relationships": second_user_relationships})
 
         return
+    
+    @strawberry.mutation
+    def delete_relationship(self, relationship_data: DeleteRelationshipInput) -> None:
+        first_user_ref = db.collection("users").document(relationship_data.first_user_id)
+        second_user_ref = db.collection("users").document(relationship_data.second_user_id)
+
+        first_user_doc = first_user_ref.get().to_dict()
+        second_user_doc = second_user_ref.get().to_dict()
+
+        # Get current relationships or empty list if none
+        first_user_relationships = first_user_doc.get("relationships", [])
+        second_user_relationships = second_user_doc.get("relationships", [])
+
+        # Remove the relationship if it exists
+        if relationship_data.second_user_id in first_user_relationships:
+            first_user_relationships.remove(relationship_data.second_user_id)
+        if relationship_data.first_user_id in second_user_relationships:
+            second_user_relationships.remove(relationship_data.first_user_id)
+
+        # Update Firestore
+        first_user_ref.update({"relationships": first_user_relationships})
+        second_user_ref.update({"relationships": second_user_relationships})
+    
+    @strawberry.mutation
+    def delete_recipe(self, recipe_id: str) -> None:
+        # Get reference to the existing recipe document
+        recipe_ref = db.collection("recipes").document(recipe_id)
+        recipe_doc = recipe_ref.get()
+
+        # Check if the recipe exists
+        if not recipe_doc.exists:
+            raise ValueError(f"Recipe with ID {recipe_id} not found")
+        
+        recipe_dict = recipe_doc.to_dict()
+        photo_url = recipe_dict.get("photo_url")
+
+        # Remove the photo from Firebase storage
+        if photo_url:
+            bucket = storage.bucket()
+            # Extract the blob path from the URL
+            parsed_url = urlparse(photo_url)
+            # The `o` path is everything after '/o/', URL-decoded
+            blob_path = unquote(parsed_url.path.split('/o/')[1])
+            blob = bucket.blob(blob_path)
+            if blob.exists():
+                blob.delete()
+                print("Recipe photo deleted.")
+
+        # Remove recipe from Recipes
+        recipe_ref.delete()
+        print("Recipe deleted.")
     
 # HELPER FUNCTIONS
 def fetch_recipe(recipe_uid: str) -> Optional[Recipe]:
