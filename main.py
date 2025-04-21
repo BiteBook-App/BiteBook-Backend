@@ -1,3 +1,4 @@
+import os
 from urllib.parse import unquote, urlparse
 import strawberry
 import firebase_admin
@@ -8,15 +9,33 @@ from typing import List, Optional
 from datetime import datetime, timezone
 from summarize import extract
 from pydantic import BaseModel
-from google.cloud.firestore_v1.base_query import FieldFilter
 from firebase_admin import storage
 
+# Path relative to this file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+cred_path = os.path.join(BASE_DIR, "firebase-admin-sdk/bitebook-admin-credential.json")
+cred = credentials.Certificate(cred_path)
+
 # Initialize Firebase
-cred = credentials.Certificate("./firebase-admin-sdk/bitebook-admin-credential.json")
 firebase_admin.initialize_app(cred, {
     'storageBucket': 'bitebook-e7770.firebasestorage.app'
 })
-db = firestore.client()
+
+# Lazy-loaded DB accessor for testability
+_db_instance = None
+def get_db():
+    global _db_instance
+    if _db_instance is None:
+        _db_instance = firestore.client()
+    return _db_instance
+
+# Lazy-loaded Storage Bucket accessor
+_bucket_instance = None
+def get_bucket():
+    global _bucket_instance
+    if _bucket_instance is None:
+        _bucket_instance = storage.bucket()
+    return _bucket_instance
 
 # ---------- QUERY CLASSES ----------
 
@@ -112,7 +131,7 @@ class DeleteRelationshipInput:
 class Query:
     @strawberry.field
     def getUsers(self, uid: Optional[str] = None) -> List[User]:
-        users_ref = db.collection("users")
+        users_ref = get_db().collection("users")
 
         # If uid is provided, filter by uid
         if uid:
@@ -146,7 +165,7 @@ class Query:
     
     @strawberry.field
     def get_recipes(self, user_id: Optional[str] = None, has_cooked: Optional[bool] = None) -> list[Recipe]:
-        recipes_ref = db.collection("recipes").order_by("createdAt", direction="DESCENDING")
+        recipes_ref = get_db().collection("recipes").order_by("createdAt", direction="DESCENDING")
         
         # If user_id is provided, filter results
         if user_id:
@@ -203,7 +222,7 @@ class Query:
             return []
         
         # Step 1: Get the user's relationships field
-        user_ref = db.collection("users").document(user_id)
+        user_ref = get_db().collection("users").document(user_id)
         user_ref_doc = user_ref.get().to_dict()
 
         # Get current relationships or empty list if none
@@ -212,7 +231,7 @@ class Query:
         # Step 2: Fetch user information for each relationship
         friends_info = []
         for friend_id in relationships:
-            friend_query = db.collection("users") \
+            friend_query = get_db().collection("users") \
                 .where("uid", "==", friend_id) \
             
             friend_docs = friend_query.stream()
@@ -232,7 +251,7 @@ class Query:
         current_year = now.year
         current_month = now.month
 
-        recipes_query = db.collection("recipes").where("user_id", "==", user_id)
+        recipes_query = get_db().collection("recipes").where("user_id", "==", user_id)
         recipe_docs = recipes_query.stream()
 
         total_recipes = 0
@@ -294,7 +313,7 @@ class Mutation:
     @strawberry.mutation
     def create_recipe(self, recipe_data: RecipeInput) -> Recipe:
         # Create a new document reference without specifying an ID (Firestore will auto-generate it)
-        recipe_ref = db.collection("recipes").document()
+        recipe_ref = get_db().collection("recipes").document()
         recipe_id = recipe_ref.id  # Get the auto-generated ID
         
         # Convert `IngredientInput` and `StepInput` objects into dictionaries
@@ -338,7 +357,7 @@ class Mutation:
     @strawberry.mutation
     def edit_recipe(self, recipe_id: str, recipe_data: RecipeInput) -> Recipe:
         # Get reference to the existing recipe document
-        recipe_ref = db.collection("recipes").document(recipe_id)
+        recipe_ref = get_db().collection("recipes").document(recipe_id)
         recipe_doc = recipe_ref.get()
 
         # Check if the recipe exists
@@ -397,7 +416,7 @@ class Mutation:
     @strawberry.mutation
     def edit_user(self, user_id: str, display_name: Optional[str] = None, profile_picture: Optional[str] = None) -> User:
         # Get reference to the existing user document
-        user_ref = db.collection("users").document(user_id)
+        user_ref = get_db().collection("users").document(user_id)
         user_doc = user_ref.get()
 
         # Check if the recipe exists
@@ -406,7 +425,7 @@ class Mutation:
         
         # Check if the display name is already taken (excluding the current user)
         if display_name:
-            users_with_same_name = db.collection("users").where("displayName", "==", display_name).get()
+            users_with_same_name = get_db().collection("users").where("displayName", "==", display_name).get()
             
             for user in users_with_same_name:
                 if user.id != user_id:  # Ensure it's not the same user updating their own name
@@ -436,8 +455,8 @@ class Mutation:
     @strawberry.mutation
     def create_relationship(self, relationship_data: RelationshipInput) -> None:
         # Update users' relationships list
-        first_user_ref = db.collection("users").document(relationship_data.first_user_id)
-        second_user_ref = db.collection("users").document(relationship_data.second_user_id)
+        first_user_ref = get_db().collection("users").document(relationship_data.first_user_id)
+        second_user_ref = get_db().collection("users").document(relationship_data.second_user_id)
 
         first_user_doc = first_user_ref.get().to_dict()
         second_user_doc = second_user_ref.get().to_dict()
@@ -460,8 +479,8 @@ class Mutation:
     
     @strawberry.mutation
     def delete_relationship(self, relationship_data: DeleteRelationshipInput) -> None:
-        first_user_ref = db.collection("users").document(relationship_data.first_user_id)
-        second_user_ref = db.collection("users").document(relationship_data.second_user_id)
+        first_user_ref = get_db().collection("users").document(relationship_data.first_user_id)
+        second_user_ref = get_db().collection("users").document(relationship_data.second_user_id)
 
         first_user_doc = first_user_ref.get().to_dict()
         second_user_doc = second_user_ref.get().to_dict()
@@ -483,7 +502,7 @@ class Mutation:
     @strawberry.mutation
     def delete_recipe(self, recipe_id: str) -> None:
         # Get reference to the existing recipe document
-        recipe_ref = db.collection("recipes").document(recipe_id)
+        recipe_ref = get_db().collection("recipes").document(recipe_id)
         recipe_doc = recipe_ref.get()
 
         # Check if the recipe exists
@@ -495,7 +514,7 @@ class Mutation:
 
         # Remove the photo from Firebase storage
         if photo_url:
-            bucket = storage.bucket()
+            bucket = get_bucket()
             # Extract the blob path from the URL
             parsed_url = urlparse(photo_url)
             # The `o` path is everything after '/o/', URL-decoded
@@ -511,7 +530,7 @@ class Mutation:
     
 # HELPER FUNCTIONS
 def fetch_recipe(recipe_uid: str) -> Optional[Recipe]:
-    recipe_ref = db.collection("recipes").document(recipe_uid)
+    recipe_ref = get_db().collection("recipes").document(recipe_uid)
     recipe_doc = recipe_ref.get()
 
     if not recipe_doc.exists:
@@ -535,7 +554,7 @@ def fetch_recipe(recipe_uid: str) -> Optional[Recipe]:
     )
 
 def fetch_user(user_id: str) -> Optional[User]:
-        users_ref = db.collection("users")
+        users_ref = get_db().collection("users")
         if user_id:
             user_doc = users_ref.document(user_id).get()
             if user_doc.exists:
@@ -551,7 +570,7 @@ def get_home_page_recipes_for_user(user_id: Optional[str], num_recipes: Optional
     if not user_id:
         return []
 
-    user_ref = db.collection("users").document(user_id)
+    user_ref = get_db().collection("users").document(user_id)
     user_ref_doc = user_ref.get().to_dict()
 
     relationships = user_ref_doc.get("relationships", []) if user_ref_doc else []
@@ -564,7 +583,7 @@ def get_home_page_recipes_for_user(user_id: Optional[str], num_recipes: Optional
     now = datetime.now()
 
     for friend_id in relationships:
-        recipes_query = db.collection("recipes") \
+        recipes_query = get_db().collection("recipes") \
             .where("user_id", "==", friend_id) \
             .where("has_cooked", "==", True) \
             .order_by("createdAt", direction=firestore.Query.DESCENDING) \

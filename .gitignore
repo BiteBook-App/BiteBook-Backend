@@ -3,3 +3,4 @@ firebase-admin-sdk/*
 __pycache__
 venv
 .env
+.pytest_cache
