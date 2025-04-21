@@ -52,12 +52,22 @@ To do this,
 5. Rename this `.json` as `bitebook-admin-credential.json` and place it in `./BiteBook-Backend/firebase-admin-sdk/`.
 
 ### 4. Run the Application
-Run the following command to start up FastAPI
+In the root directory, run the following command to start up FastAPI
 ```sh
-uvicorn graphql-fast-api-backend:app --reload
+uvicorn main:app --reload
 ```
 
 Once the server starts, you can access the GraphQL endpoint at `http://127.0.0.1:8000/graphql`.
 
 Accessing this URL on a browser will open up the GraphQL playground, where you can test the endpoint within a UI.
-   
+
+### 5. Running Unit Tests
+In the root directory, run the following command to run unit tests that validate the core features of BiteBook's GraphQL backend.
+```sh
+pytest
+```
+
+To run the unit tests without deprecation warnings, run the following:
+```sh
+pytest -W ignore::DeprecationWarning
+```
