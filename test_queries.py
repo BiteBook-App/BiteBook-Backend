@@ -124,22 +124,27 @@ def test_graphql_get_home_page_recipes(client, mock_firestore_db, sample_user, s
         assert data[0]["hasCooked"] is True
 
 def test_graphql_get_taste_page_info(client, mock_firestore_db, sample_user, sample_recipe):
-    mock_recipes = mock_firestore_db["recipes"]
     user_id = sample_user["uid"]
-
     now = datetime.now(timezone.utc)
     sample_recipe["createdAt"] = datetime(now.year, now.month, 10, tzinfo=timezone.utc)
+    sample_recipe["has_cooked"] = True
 
     mock_recipe_doc = MagicMock()
     mock_recipe_doc.id = sample_recipe["uid"]
-    mock_recipes.where.return_value.stream.return_value = [mock_recipe_doc]
+
+    first_where_mock = MagicMock()
+    second_where_mock = MagicMock()
+    second_where_mock.stream.return_value = [mock_recipe_doc]
+    first_where_mock.where.return_value = second_where_mock
+    mock_firestore_db["recipes"].where.return_value = first_where_mock
 
     with patch("main.fetch_recipe") as mock_fetch_recipe, \
          patch("main.get_home_page_recipes_for_user") as mock_get_home_recipes:
 
         mock_fetch_recipe.return_value = MagicMock(
             createdAt=sample_recipe["createdAt"].isoformat(),
-            tastes=sample_recipe["tastes"]
+            tastes=sample_recipe["tastes"],
+            has_cooked=True
         )
 
         mock_recipe = MagicMock()
