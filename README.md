@@ -35,11 +35,11 @@ venv\Scripts\activate
 ### 2. Install Dependencies
 To install all dependencies, run:
 ```sh
-pip install -r requirements.txt && playwright install
+pip install -r requirements.txt && playwright install --with-deps
 ```
 
 ### 3. env File
-Create a GroqCloud account and generate an API key. Set up env file with GROQ_API_KEY={value here}. 
+Create a GroqCloud account and generate an API key. Set up an `.env` file with `GROQ_API_KEY={value here}`. 
 
 ### 3. Firebase Configuration
 In order for the service to access the BiteBook's Firebase project, you must include a private key.
@@ -50,6 +50,7 @@ To do this,
 3. Go to `Service Accounts`
 4. Click **Generate new private key**.
 5. Rename this `.json` as `bitebook-admin-credential.json` and place it in `./BiteBook-Backend/firebase-admin-sdk/`.
+6. In the `.env` file, set `FIREBASE_CRED_PATH = firebase-admin-sdk/bitebook-admin-credential.json`
 
 ### 4. Run the Application
 In the root directory, run the following command to start up FastAPI
@@ -71,3 +72,11 @@ To run the unit tests without deprecation warnings, run the following:
 ```sh
 pytest -W ignore::DeprecationWarning
 ```
+
+### 6. Run as a Docker Container
+In the root directory, run the following command to build the Docker image **and** push to a public Docker registry:
+```sh
+docker buildx build --platform linux/amd64 -t <your-name>/bitebook-app:latest . --push
+```
+The image can now be deployed on platforms such as Render or Heroku. Ensure that the `.env` values for `GROQ_API_KEY` and `FIREBASE_CRED_PATH` are set.
+
