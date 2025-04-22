@@ -35,11 +35,11 @@ venv\Scripts\activate
 ### 2. Install Dependencies
 To install all dependencies, run:
 ```sh
-pip install -r requirements.txt && playwright install
+pip install -r requirements.txt && playwright install --with-deps
 ```
 
 ### 3. env File
-Create a GroqCloud account and generate an API key. Set up env file with GROQ_API_KEY={value here}. 
+Create a GroqCloud account and generate an API key. Set up an `.env` file with `GROQ_API_KEY={value here}`. 
 
 ### 3. Firebase Configuration
 In order for the service to access the BiteBook's Firebase project, you must include a private key.
