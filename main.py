@@ -251,7 +251,10 @@ class Query:
         current_year = now.year
         current_month = now.month
 
-        recipes_query = get_db().collection("recipes").where("user_id", "==", user_id)
+        recipes_query = get_db().collection("recipes") \
+        .where("user_id", "==", user_id) \
+        .where("has_cooked", "==", True)
+        
         recipe_docs = recipes_query.stream()
 
         total_recipes = 0

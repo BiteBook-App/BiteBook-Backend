@@ -36,7 +36,7 @@ async def extract(inputUrl):
         extraction_type="schema",  # Type of extraction to perform
         schema=Recipe.schema_json(),
         instruction=(
-            "Extract the name of the recipe, the ingredients (with original measurements), and numbered recipe steps. For each step, retain expanded = True. Remove any unrelated content (e.g., notes, ads, comments). Ensure clarity and conciseness."
+            "Extract the name of the recipe, the ingredients (with original measurements), and numbered recipe steps. Set the ingredient amount in the count field. For each step, retain expanded = True. Remove any unrelated content (e.g., notes, ads, comments). Ensure clarity and conciseness."
         ), 
         input_format="fit_markdown",  # Format of the input content
         verbose=True,  # Enable verbose logging
