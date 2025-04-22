@@ -10,10 +10,13 @@ from datetime import datetime, timezone
 from summarize import extract
 from pydantic import BaseModel
 from firebase_admin import storage
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Path relative to this file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-cred_path = os.path.join(BASE_DIR, "firebase-admin-sdk/bitebook-admin-credential.json")
+cred_path = os.getenv("FIREBASE_CRED_PATH", os.path.join(BASE_DIR, "firebase-admin-sdk/bitebook-admin-credential.json"))
 cred = credentials.Certificate(cred_path)
 
 # Initialize Firebase
