@@ -291,7 +291,7 @@ class Query:
 
         top_tastes = [t.taste for t in taste_info_list if t.percentage > 0][:3]
 
-        home_page_recipes = get_home_page_recipes_for_user(user_id, num_recipes=10, recommendations=True)
+        home_page_recipes = get_home_page_recipes_for_user(user_id, num_recipes=5, recommendations=True)
 
         recommendations = []
         if top_tastes:
