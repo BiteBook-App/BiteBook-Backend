@@ -35,7 +35,7 @@ venv\Scripts\activate
 ### 2. Install Dependencies
 To install all dependencies, run:
 ```sh
-pip install -r requirements.txt
+pip install -r requirements.txt && playwright install
 ```
 
 ### 3. env File
